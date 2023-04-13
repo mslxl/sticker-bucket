@@ -1,0 +1,31 @@
+$themes: (
+  light: (
+    font-color: rgb(0,0,0),
+
+    primary-border-color: rgba(242, 242, 242, 1)
+  ),
+  dark: (
+    font-color: rgb(255,255,255),
+
+    primary-background-color: rgb(25,25,25),
+    secondary-background-color: rgb(31,31,31),
+
+    primary-border-color: rgb(58,58,58),
+    secondary-border-color: rgb(45,45,45),
+
+    hover-color: rgb(45,45,45)
+
+  )
+);
+
+@mixin themeify{
+  @each $theme-name, $theme-map in $themes {
+    * [data-theme="#{$theme-name}"]{
+      @each $var-name, $var-value in $theme-map{
+        --#{$var-name}: #{$var-value};
+      }
+
+      color: map-get($theme-map, 'font-color');
+    }
+  }
+}
