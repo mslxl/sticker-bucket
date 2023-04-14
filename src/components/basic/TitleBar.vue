@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
   m-divider(:dark="true")
 </template>
 
-<style lang="scss">
+<style scoped lang="scss">
 .button-bar {
   margin: 6px 12px 6px 12px;
   height: 36px;
