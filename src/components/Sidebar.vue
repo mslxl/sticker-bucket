@@ -21,7 +21,7 @@ const isExpand = ref(false)
       m-button.menu-btn(@click="isExpand = !isExpand" justify="left") 
         font-awesome-icon.icon(icon="fa-solid fa-bars")
     li
-      m-button.menu-btn(justify="left") 
+      m-button.menu-btn(@click="$router.replace({name: 'main'})" justify="left") 
         font-awesome-icon.icon(icon="fa-solid fa-inbox")
         span(v-show="isExpand") All
     li
@@ -37,7 +37,7 @@ const isExpand = ref(false)
   .space
   ul.sidebar-list
     li
-      m-button.menu-btn(justify="left") 
+      m-button.menu-btn(@click="$router.replace({name: 'settings'})" justify="left") 
         font-awesome-icon.icon(icon="fa-solid fa-gear")
         span(v-show="isExpand") Settings 
 </template>

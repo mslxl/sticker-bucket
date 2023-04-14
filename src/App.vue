@@ -18,7 +18,7 @@ router.afterEach((to, from)=>{
 </script>
 
 <template lang="pug">
-.container(:data-theme="settings.theme")
+.container(:data-theme="settings.theme" :data-colorschema="settings.colorschema")
   sidebar.sidebar
   .main-view
     router-view(v-slot="{ Component, route }")
