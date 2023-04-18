@@ -9,7 +9,7 @@ import Sidebar from './components/Sidebar.vue'
 const settings = useSettings()
 const router = useRouter()
 
-router.afterEach((to, from)=>{
+router.afterEach((to, from) => {
   const toDepth = to.path.split('/').length
   const fromDepth = from.path.split('/').length
   to.meta.transition = toDepth < fromDepth ? 'slide-right' : 'slide-left'
@@ -21,14 +21,13 @@ router.afterEach((to, from)=>{
 .container(:data-theme="settings.theme" :data-colorschema="settings.colorschema")
   sidebar.sidebar
   .main-view
-    router-view(v-slot="{ Component, route }")
-      transition(enterActiveClass="animate__animated animate__faster animate__fadeIn" leaveActiveClass="animate__animated animate__faster animate__fadeOut")
-        .root
-          component.viewport(:is="Component" :key="route.path")
+      router-view(v-slot="{ Component, route }")
+        transition(enterActiveClass="animate__animated animate__faster animate__fadeIn" leaveActiveClass="animate__animated animate__faster animate__fadeOut")
+          .viewport(:key="route.path")
+            component(:is="Component" :key="route.path")
 </template>
 
 <style scoped lang="scss">
-
 .main-view {
   position: relative;
   height: 100vh;
@@ -37,8 +36,10 @@ router.afterEach((to, from)=>{
   overflow: hidden;
   border-radius: 16px;
 
-  .viewport{
+
+  .viewport {
     position: absolute;
+    top: 0;
     width: 100%;
     height: 100%;
   }

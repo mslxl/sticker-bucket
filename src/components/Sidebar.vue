@@ -83,6 +83,6 @@ const isExpand = ref(false)
 }
 
 .expand {
-  width: 30%;
+  width: 240px;
 }
 </style>

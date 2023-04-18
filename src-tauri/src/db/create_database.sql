@@ -7,9 +7,16 @@ CREATE TABLE meme(
     summary    TEXT NOT NULL,
     desc       TEXT,
     thumbnail  TEXT,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT meme_pk2
         UNIQUE (id, content, extra_data)
 );
+
+CREATE TRIGGER [UpdateUpdateTime] AFTER UPDATE ON meme FOR EACH ROW
+BEGIN
+    UPDATE meme SET update_time = CURRENT_TIMESTAMP WHERE id = OLD.id;
+END;
 
 CREATE TABLE tag(
     id        INTEGER NOT NULL

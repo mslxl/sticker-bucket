@@ -6,11 +6,11 @@ use crate::handler::database::add_file_to_library;
 
 #[derive(Serialize)]
 pub struct Meme {
-    id: u32,
-    content: String,
-    extra_data: String,
-    summary: String,
-    desc: Option<String>,
+    pub id: u32,
+    pub content: String,
+    pub extra_data: Option<String>,
+    pub summary: String,
+    pub desc: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,6 +91,12 @@ pub fn add_meme(file: String, extra_data: Option<String>, summary: String, desc:
         DatabaseMapper::link_tag_and_meme(&transaction, tag, meme_id)
     }
     transaction.commit().unwrap();
+}
+
+#[tauri::command]
+pub fn get_meme_by_page(page: i32) -> Vec<Meme>{
+    let binding = DATABASE.lock().unwrap();
+    DatabaseMapper::get_meme_by_page(&binding, page)
 }
 
 fn interfer_summary<P: AsRef<Path>>(file: P) -> Option<String> {
