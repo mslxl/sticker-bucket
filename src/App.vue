@@ -23,7 +23,8 @@ router.afterEach((to, from)=>{
   .main-view
     router-view(v-slot="{ Component, route }")
       transition(enterActiveClass="animate__animated animate__faster animate__fadeIn" leaveActiveClass="animate__animated animate__faster animate__fadeOut")
-        component.viewport(:is="Component" :key="route.path")
+        .root
+          component.viewport(:is="Component" :key="route.path")
 </template>
 
 <style scoped lang="scss">

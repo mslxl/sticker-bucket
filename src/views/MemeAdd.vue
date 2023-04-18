@@ -1,47 +1,92 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
 import { convertFileSrc } from '@tauri-apps/api/tauri'
+import { computed, reactive, ref} from 'vue'
+import { useRouter } from 'vue-router'
 
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { faSquarePlus, faTurnDown, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
-import { open_image_and_interfer } from '../scripts/rs/meme'
+import { openImageAndInterfer, addMemeToLib } from '../scripts/rs/meme'
 
 import MButton from '../components/basic/Button.vue'
 import MCard from '../components/basic/Card.vue'
 import MTitleBar from '../components/basic/TitleBar.vue'
 import MInput from '../components/basic/InputField.vue'
 import MTag from '../components/basic/Tag.vue'
+import MCheckbox from '../components/basic/Checkbox.vue'
 
 
 library.add(faSquarePlus, faTurnDown, faCheck)
-const imagePath = ref('')
+const imageRealPath = ref('')
 const imageSummary = ref('')
 const imageDesc = ref('')
 const imageTags = reactive<any>({})
 const imageNamespace = computed(() => Object.keys(imageTags))
+const deleteFileAfterAdd = ref(true)
 
-imageTags['female'] = ['lolicon', 'keminomimi', 'cat girl']
-imageTags['character'] = ['yukikaze']
-
-console.log(imageTags)
+const imagePath = computed(() => imageRealPath.value.length > 0 ? convertFileSrc(imageRealPath.value) : '')
+const router = useRouter()
 
 async function chooseImage() {
-  let meme = await open_image_and_interfer()
+  let meme = await openImageAndInterfer()
   if (meme) {
-    // imageBase64.value = meme.base64
-    imagePath.value = convertFileSrc(meme.path)
+    imageRealPath.value = meme.path
     if (meme.summary) imageSummary.value = meme.summary
     if (meme.desc) imageDesc.value = meme.desc
   }
+}
+
+const tagInput = ref('')
+function addNewTag() {
+  const legalRegex = /(.+):(.+)/
+  const result = legalRegex.exec(tagInput.value)
+  if (!result) return
+  const namespace = result[1].trim()
+  const value = result[2].trim()
+  if (imageTags[namespace]) {
+    imageTags[namespace].append(value)
+  } else {
+    imageTags[namespace] = [value]
+  }
+  tagInput.value = ''
+}
+
+function removeTag(namespace: string, index: number) {
+  imageTags[namespace].splice(index, 1)
+  if (imageTags[namespace].length == 0) {
+    delete imageTags[namespace]
+  }
+}
+
+const addBtnAvailable = computed(() => imagePath.value.length > 0 && imageSummary.value.trim().length > 0)
+
+async function addMeme() {
+  if (!addBtnAvailable.value) {
+    return
+  }
+
+  let tagList = []
+  for (let key of Object.keys(imageTags)) {
+    let value = imageTags[key] as string[]
+    for (let item of value) {
+      tagList.push({
+        namespace: key,
+        value: item
+      })
+    }
+  }
+
+  addMemeToLib(imageRealPath.value, imageSummary.value, imageDesc.value, tagList, deleteFileAfterAdd.value)
+
+  router.back()
 }
 
 </script>
 
 <template lang="pug">
 m-title-bar(title="Add" :back="true")
-  m-button.btn-item
+  m-button.btn-item(@click="addMeme")
     font-awesome-icon(icon="fa-solid fa-check")
     span Save
 
@@ -52,29 +97,31 @@ m-title-bar(title="Add" :back="true")
       font-awesome-icon.image(v-else icon="fa-solid fa-square-plus")
 
   .editor
-    span Name
-    m-input
+    div
+    m-checkbox(label="Delete file after add" v-model="deleteFileAfterAdd")
 
     span Summary
-    m-input
+    m-input(v-model="imageSummary")
+
+    span Description
+    m-input(v-model="imageDesc")
 
     span Tag
-    m-input
-      m-button
+    m-input(v-model="tagInput")
+      m-button(@click="addNewTag()")
         font-awesome-icon(icon="fa-solid fa-turn-down fa-rotate-90")
     //- tag show   
-    template(v-for="nsp in imageNamespace")
+    template(v-for="nsp in imageNamespace" :key="nsp")
       m-tag {{  nsp }}
       .tag-value
-        m-tag.tag-item(v-for="value in imageTags[nsp]" :key="nsp+value" :closable="true") {{  value  }}
+        m-tag.tag-item(v-for="(value, valueIndex) in imageTags[nsp]" :key="nsp+value" :closable="true" @on-close="removeTag(nsp, valueIndex)") {{  value  }}
 
 </template>
 
 
 <style scoped lang="scss">
-
-.tag-value{
-  .tag-item{
+.tag-value {
+  .tag-item {
     margin-left: 2px;
   }
 }

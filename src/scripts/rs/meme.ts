@@ -6,9 +6,28 @@ export interface MemeInterfer {
   tags: {
     namespace: string,
     value: string
-  }
+  }[]
 }
 
-export async function open_image_and_interfer(): Promise<MemeInterfer | null> {
-  return await invoke('open_image_and_interfer', {}) as MemeInterfer | null
+export async function openImageAndInterfer(): Promise<MemeInterfer | null> {
+  return await invoke('open_image_and_interfere', {}) as MemeInterfer | null
+}
+
+export async function addMemeToLib(file:string, summary: string, desc: string, tags: {namespace: string, value:string}[], removeAfterAdd: boolean, extraData?: string){
+  console.log({
+    file: file,
+    summary: summary,
+    desc: desc,
+    tags: tags,
+    removeAfterAdd: removeAfterAdd,
+    extraData: extraData
+  })
+  await invoke('add_meme', {
+    file: file,
+    summary: summary,
+    desc: desc,
+    tags: tags,
+    removeAfterAdd: removeAfterAdd,
+    extraData: extraData
+  })
 }
