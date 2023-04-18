@@ -8,12 +8,25 @@ import { ref } from 'vue'
 import MTitleBar from '../components/basic/TitleBar.vue'
 import MCard from '../components/basic/Card.vue'
 
-import { getTableVersion } from '../scripts/rs/db'
+import { getDatabaseDir, getTableVersion } from '../scripts/rs/db'
 
 
-const tableVersionCode = ref(-1)
+const itemTableVersionCode = ref(-1)
+const itemDatabseDir = ref('')
 
-getTableVersion().then(code => tableVersionCode.value = code)
+function showOrTip(v: any): any{
+  if(typeof v == 'number' && v == -1)
+    return "initialize..."
+  
+  if(typeof v == 'string' && v.trim().length == 0) 
+    return "initialize..."
+
+  return v
+
+}
+
+getTableVersion().then(code => itemTableVersionCode.value = code)
+getDatabaseDir().then(dir => itemDatabseDir.value = dir)
 
 </script>
 <template lang="pug">
@@ -23,7 +36,11 @@ m-title-bar(title="Settings")
   m-card.preference-item
     span Database table version
     .space
-    span {{ tableVersionCode == -1 ? "initialize database" : tableVersionCode }}
+    span {{ showOrTip(itemTableVersionCode) }}
+  m-card.preference-item
+    span Database location
+    .space
+    span.selectable {{ showOrTip(itemDatabseDir) }}
 
 </template>
 
