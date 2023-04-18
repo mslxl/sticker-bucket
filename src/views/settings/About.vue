@@ -5,42 +5,46 @@
 // import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { ref } from 'vue'
 
-import MTitleBar from '../components/basic/TitleBar.vue'
-import MCard from '../components/basic/Card.vue'
+import MTitleBar from '../../components/basic/TitleBar.vue'
+import MCard from '../../components/basic/Card.vue'
 
-import { getDatabaseDir, getTableVersion } from '../scripts/rs/db'
+import { getDataDir, getSQLiteVersion, getTableVersion } from '../../scripts/rs/db'
 
 
 const itemTableVersionCode = ref(-1)
 const itemDatabseDir = ref('')
+const itemSQLiteVersion = ref('')
 
-function showOrTip(v: any): any{
-  if(typeof v == 'number' && v == -1)
-    return "initialize..."
-  
-  if(typeof v == 'string' && v.trim().length == 0) 
+function showOrTip(v: any): any {
+  if (typeof v == 'number' && v == -1)
     return "initialize..."
 
+  if (typeof v == 'string' && v.trim().length == 0)
+    return "initialize..."
   return v
-
 }
 
 getTableVersion().then(code => itemTableVersionCode.value = code)
-getDatabaseDir().then(dir => itemDatabseDir.value = dir)
+getDataDir().then(dir => itemDatabseDir.value = dir)
+getSQLiteVersion().then(version => itemSQLiteVersion.value = version)
 
 </script>
 <template lang="pug">
-m-title-bar(title="Settings")
+m-title-bar(title="About" :back="true")
 
 .panel
   m-card.preference-item
-    span Database table version
-    .space
-    span {{ showOrTip(itemTableVersionCode) }}
-  m-card.preference-item
-    span Database location
+    span Data Location
     .space
     span.selectable {{ showOrTip(itemDatabseDir) }}
+  m-card.preference-item
+    span Bundled Database
+    .space
+    span.selectable {{ showOrTip(itemSQLiteVersion) }}
+  m-card.preference-item
+    span Database Table Version
+    .space
+    span.selectable {{ showOrTip(itemTableVersionCode) }}
 
 </template>
 

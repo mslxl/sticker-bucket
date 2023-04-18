@@ -11,8 +11,18 @@ pub fn get_table_version() -> u32 {
 }
 
 #[tauri::command]
-pub fn get_database_dir() -> Cow<'static, str> {
+pub fn get_sqlite_version() -> String{
+    format!("SQLite {}", rusqlite::version())
+}
+
+#[tauri::command]
+pub fn get_data_dir() -> Cow<'static, str> {
     DATABASE_DIR.to_string_lossy()
+}
+
+#[tauri::command]
+pub fn get_image_real_path(image_id: &str)-> PathBuf{
+    DATABASE_FILE_DIR.join(image_id)
 }
 
 pub fn add_file_to_library<P: AsRef<Path>>(file: P) -> String {

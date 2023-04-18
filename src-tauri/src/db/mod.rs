@@ -9,6 +9,8 @@ use once_cell::sync::Lazy;
 use rusqlite::{Connection, OptionalExtension, Result};
 use sha256::{digest, try_digest};
 
+use crate::handler::meme::Meme;
+
 static DATABASE_VERSION: u32 = 0;
 
 pub static DATABASE_DIR: Lazy<PathBuf> = Lazy::new(|| {
@@ -100,5 +102,17 @@ impl DatabaseMapper {
             "INSERT INTO meme(content, extra_data, summary, desc, thumbnail) VALUES (?1, ?2, ?3, ?4, ?5)",
             (file_id, extra_data, summary, description, thumbnail)).unwrap();
         conn.last_insert_rowid()
+    }
+
+    pub fn get_meme_by_page(conn: &Connection, page: i32) -> Vec<Meme>{
+        let mut stmt = conn.prepare("SELECT id, content, extra_data, summary, desc FROM meme ORDER BY update_time DESC LIMIT 50 OFFSET ?1").unwrap();
+        let mut iter = stmt.query_map([page], |row|Ok(Meme{
+            id: row.get(0).unwrap(),
+            content: row.get(1).unwrap(), 
+            extra_data: row.get(2).ok(),
+            summary: row.get(3).unwrap(),
+            desc: row.get(4).unwrap(),
+        })).unwrap();
+        iter.map(|v| v.unwrap()).collect()
     }
 }
