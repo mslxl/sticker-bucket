@@ -10,7 +10,7 @@ import MTitleBar from '../components/basic/TitleBar.vue'
 
 import MMemeView from '../components/MemeView.vue'
 import { onMounted, reactive } from 'vue'
-import { getMemeByPage } from '../scripts/rs/meme'
+import { getMemeByPage } from '../scripts/rs/db'
 
 library.add(faAdd, faPen, faX, faEllipsisV)
 

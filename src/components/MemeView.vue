@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { watch, ref } from 'vue';
 import { convertFileSrc } from '@tauri-apps/api/tauri'
-import { getImageRealPath } from '../scripts/rs/meme'
+import { getImageRealPath } from '../scripts/rs/db'
 import MCard from './basic/Card.vue'
 import MDivider from './basic/Divider.vue'
 

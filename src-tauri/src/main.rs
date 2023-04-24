@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
+mod meme;
 mod handler;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -9,17 +10,19 @@ mod handler;
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            handler::meme::open_image_and_interfere,
-            handler::meme::add_meme,
-            handler::meme::get_meme_by_page,
-            handler::meme::get_meme_by_id,
-            handler::meme::get_tag_by_meme_id,
-            handler::meme::query_namespace_with_prefix,
-            handler::meme::query_tag_value_with_prefix,
+            handler::database::open_image_and_interfere,
+            handler::database::add_meme,
+            handler::database::query_all_memes_by_page,
+            handler::database::query_meme_by_id,
+            handler::database::query_tag_by_meme_id,
+            handler::database::query_namespace_with_prefix,
+            handler::database::query_tag_value_with_prefix,
             handler::database::get_table_version,
             handler::database::get_sqlite_version,
             handler::database::get_data_dir,
-            handler::database::get_image_real_path
+            handler::database::get_image_real_path,
+
+            handler::debug::is_debug
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
