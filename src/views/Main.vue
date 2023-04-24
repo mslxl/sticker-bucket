@@ -14,7 +14,7 @@ import { getMemeByPage } from '../scripts/rs/meme'
 
 library.add(faAdd, faPen, faX, faEllipsisV)
 
-interface Meme{
+interface Meme {
   id: number,
   content: string,
   extraData: string,
@@ -46,16 +46,22 @@ m-title-bar(title="All")
     font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
 .meme-list
   .content
-    m-meme-view.meme-item(v-for="item in memes" :summary="item.summary" :image-id="item.content" :key="item.id")
+    m-meme-view.meme-item(
+      v-for="item in memes" 
+      :summary="item.summary" 
+      :image-id="item.content" 
+      :key="item.id" 
+      @click="$router.push({name: 'meme.view', params: {id: item.id}})")
 
 </template>
 
 
 <style scoped lang="scss">
-.meme-list{
+.meme-list {
   height: 100%;
   width: 100%;
 }
+
 .meme-list .content {
   position: relative;
   padding: 24px;
@@ -65,6 +71,11 @@ m-title-bar(title="All")
   height: 100%;
   display: grid;
   gap: 12px;
+
+    transition: all 0.3s linear;
+  .meme-item{
+    transition: all 0.3s linear;
+  }
 
   grid-auto-rows: min-content;
 
@@ -99,4 +110,5 @@ m-title-bar(title="All")
   span {
     padding: 0 8px 0 8px;
   }
-}</style>
+}
+</style>

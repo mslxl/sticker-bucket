@@ -38,7 +38,12 @@
         "icons/icon.ico"
       ],
       "identifier": "com.mslxl.mmm",
-      "targets": "all"
+      "targets": "all",
+      "windows": {
+        "webviewInstallMode": {
+          "type": "embedBootstrapper"
+        }
+      }
     },
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost"

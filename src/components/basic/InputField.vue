@@ -10,17 +10,20 @@ const props = withDefaults(defineProps<{
 
 const emits = defineEmits<{
   (e: 'update:modelValue', value: string):void
+  (e: 'focusout'): void
+  (e: 'input', value: string):void
 }>()
 
 function updateModelValue(event: EventTarget | null){
   emits('update:modelValue', (event as HTMLInputElement).value)
+  emits('input', (event as HTMLInputElement).value)
 }
 
 </script>
 
 <template lang="pug">
 span.inputbox-wrapper
-  input(:type="props.type" :value="modelValue" @input="updateModelValue($event.target)")
+  input(:type="props.type" :value="modelValue" @input="updateModelValue($event.target)" @focusout="emits('focusout')")
   .suffix
     slot
 </template>

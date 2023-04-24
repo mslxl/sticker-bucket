@@ -39,3 +39,19 @@ export async function getMemeByPage(page: number) : Promise<Meme[]>{
 export async function getImageRealPath(imageId: string) : Promise<string>{
   return invoke('get_image_real_path', { imageId })
 }
+
+export async function queryTagValueWithPrefix(namespace: string, prefix: string): Promise<string[]> {
+  return invoke('query_tag_value_with_prefix', { namespace, prefix })
+}
+
+export async function queryNamespaceWithPrefix(prefix: string): Promise<string[]> {
+  return invoke('query_namespace_with_prefix', { prefix })
+}
+
+export async function getMemeByID(id: number): Promise<Meme> {
+  return invoke('get_meme_by_id', {id})
+}
+
+export async function getTagByMemeID(id: number): Promise<{namespace: string, value: string}[]>{
+  return invoke('get_tag_by_meme_id', {id})
+}

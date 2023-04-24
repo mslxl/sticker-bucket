@@ -8,6 +8,9 @@ import App from "./App.vue"
 import router from './router'
 
 const pinia = createPinia()
+
+document.oncontextmenu = () => false
+
 createApp(App)
   .use(router)
   .use(pinia)
