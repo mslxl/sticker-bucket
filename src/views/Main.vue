@@ -72,34 +72,8 @@ m-title-bar(title="All")
   display: grid;
   gap: 12px;
 
-    transition: all 0.3s linear;
-  .meme-item{
-    transition: all 0.3s linear;
-  }
-
-  grid-auto-rows: min-content;
-
-  @media screen and (min-width: 240px) {
-    grid-template-columns: 1fr;
-  }
-
-  @media screen and (min-width: 480px) {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  @media screen and (min-width: 720px) {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-
-  @media screen and (min-width: 960px) {
-    grid-template-columns: 1fr 1fr 1fr 1fr;
-  }
-
-  @media screen and (min-width: 1200px) {
-    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-  }
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
-
 
 
 .btn-item {
