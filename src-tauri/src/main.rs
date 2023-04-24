@@ -3,6 +3,7 @@
 
 mod db;
 mod meme;
+mod error;
 mod handler;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -21,7 +22,6 @@ fn main() {
             handler::database::get_sqlite_version,
             handler::database::get_data_dir,
             handler::database::get_image_real_path,
-
             handler::debug::is_debug
         ])
         .run(tauri::generate_context!())
