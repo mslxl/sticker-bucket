@@ -7,7 +7,7 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { faSquarePlus, faTurnDown, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
-import { openImageAndInterfer, addMemeToLib, queryNamespaceWithPrefix, queryTagValueWithPrefix } from '../scripts/rs/meme'
+import { openImageAndInterfer, addMemeToLib, queryNamespaceWithPrefix, queryTagValueWithPrefix } from '../scripts/rs/db'
 
 import MButton from '../components/basic/Button.vue'
 import MCard from '../components/basic/Card.vue'

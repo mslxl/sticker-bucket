@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { getMemeByID, getImageRealPath, getTagByMemeID } from '../scripts/rs/meme'
+import { getMemeByID, getImageRealPath, getTagByMemeID } from '../scripts/rs/db'
 
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { faPenToSquare } from '@fortawesome/free-solid-svg-icons'
@@ -15,7 +15,7 @@ import { convertFileSrc } from '@tauri-apps/api/tauri'
 
 library.add(faPenToSquare)
 
-export interface Meme {
+interface Meme {
   id: number,
   content: string,
   extraData: string,
