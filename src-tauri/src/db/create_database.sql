@@ -21,7 +21,7 @@ END;
 CREATE TABLE tag(
     id        INTEGER NOT NULL
         CONSTRAINT tag_pk
-            PRIMARY KEY,
+            PRIMARY KEY AUTOINCREMENT,
     namespace TEXT    NOT NULL,
     value     INTEGER NOT NULL,
     CONSTRAINT tag_pk2

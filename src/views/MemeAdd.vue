@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { convertFileSrc } from '@tauri-apps/api/tauri'
-import { computed, reactive, ref} from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { library } from '@fortawesome/fontawesome-svg-core'
 import { faSquarePlus, faTurnDown, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
-import { openImageAndInterfer, addMemeToLib } from '../scripts/rs/meme'
+import { openImageAndInterfer, addMemeToLib, queryNamespaceWithPrefix, queryTagValueWithPrefix } from '../scripts/rs/meme'
 
 import MButton from '../components/basic/Button.vue'
 import MCard from '../components/basic/Card.vue'
@@ -15,6 +15,7 @@ import MTitleBar from '../components/basic/TitleBar.vue'
 import MInput from '../components/basic/InputField.vue'
 import MTag from '../components/basic/Tag.vue'
 import MCheckbox from '../components/basic/Checkbox.vue'
+import MAutoComplate from '../components/basic/AutoComplate.vue'
 
 
 library.add(faSquarePlus, faTurnDown, faCheck)
@@ -28,6 +29,9 @@ const deleteFileAfterAdd = ref(true)
 const imagePath = computed(() => imageRealPath.value.length > 0 ? convertFileSrc(imageRealPath.value) : '')
 const router = useRouter()
 
+const tagAutoComplate = ref<InstanceType<typeof MAutoComplate>>()
+
+
 async function chooseImage() {
   let meme = await openImageAndInterfer()
   if (meme) {
@@ -38,6 +42,40 @@ async function chooseImage() {
 }
 
 const tagInput = ref('')
+
+async function onTagInput(value: string) {
+  let coloIdx = value.indexOf(':')
+  if (coloIdx != -1) {
+    let namespace = value.substring(0, coloIdx)
+    let tagValue = await queryTagValueWithPrefix(namespace, value.substring(coloIdx + 1))
+    tagAutoComplate.value?.update(tagValue.map(n => { return { value: n, tip: 'Value' } }))
+  } else {
+    let namespace = await queryNamespaceWithPrefix(value)
+    tagAutoComplate.value?.update(namespace.map(n => { return { value: n, tip: 'Namespace' } }))
+  }
+
+}
+
+function acceptAutoComplate(value: string) {
+  let coloIdx = tagInput.value.indexOf(':')
+  if (coloIdx != -1) {
+    tagInput.value = tagInput.value.substring(0, coloIdx + 1) + value
+    disposeAutoComplate()
+  } else {
+    tagInput.value = value + ":"
+    disposeAutoComplate()
+    onTagInput(tagInput.value)
+  }
+}
+
+function disposeAutoComplate() {
+  setTimeout(() => {
+    if (!tagInput.value.trim().endsWith(':')) {
+      tagAutoComplate.value?.dispose()
+    }
+  }, 250)
+}
+
 function addNewTag() {
   const legalRegex = /(.+):(.+)/
   const result = legalRegex.exec(tagInput.value)
@@ -45,7 +83,7 @@ function addNewTag() {
   const namespace = result[1].trim()
   const value = result[2].trim()
   if (imageTags[namespace]) {
-    imageTags[namespace].append(value)
+    imageTags[namespace].push(value)
   } else {
     imageTags[namespace] = [value]
   }
@@ -92,9 +130,8 @@ m-title-bar(title="Add" :back="true")
 
 .panel
   m-card.image-viewer(@click="chooseImage")
-    .image__overlay()
-      img.image(v-if="imagePath.trim && imagePath.trim().length != 0" :src="imagePath")
-      font-awesome-icon.image(v-else icon="fa-solid fa-square-plus")
+    img.image(v-if="imagePath.trim && imagePath.trim().length != 0" :src="imagePath")
+    font-awesome-icon.image.svg-image(v-else icon="fa-solid fa-square-plus")
 
   .editor
     div
@@ -107,9 +144,10 @@ m-title-bar(title="Add" :back="true")
     m-input(v-model="imageDesc")
 
     span Tag
-    m-input(v-model="tagInput")
-      m-button(@click="addNewTag()")
-        font-awesome-icon(icon="fa-solid fa-turn-down fa-rotate-90")
+    m-auto-complate(ref="tagAutoComplate" @accpet="acceptAutoComplate")
+      m-input(v-model="tagInput" @focusout="disposeAutoComplate()" @input="onTagInput($event)")
+        m-button(@click="addNewTag()")
+          font-awesome-icon(icon="fa-solid fa-turn-down fa-rotate-90")
     //- tag show   
     template(v-for="nsp in imageNamespace" :key="nsp")
       m-tag {{  nsp }}
@@ -126,23 +164,27 @@ m-title-bar(title="Add" :back="true")
   }
 }
 
+
 .panel {
   height: 100%;
+  width: 100%;
   overflow: auto;
-  position: relative;
+  position: static;
+  display: flex;
+
+  flex-direction: column;
 }
+
 
 .image-viewer,
 .editor {
   margin: 24px;
-  position: relative;
 }
 
-@media only screen and (max-width: 420px) {
+@media screen and (max-width: 420px) {
   .editor {
     grid-template-columns: 1fr !important;
   }
-
 }
 
 .editor {
@@ -151,24 +193,42 @@ m-title-bar(title="Add" :back="true")
   gap: 8px;
 }
 
-.image__overlay {
-  position: absolute;
+.image-viewer {
+  position: static;
+  height: 50%;
+
   display: flex;
   justify-content: center;
-  height: 100%;
-  width: 100%;
+  align-items: center;
   padding: 12px;
-  text-align: center;
-}
-
-.image-viewer {
-  min-height: 128px;
-  min-width: 128px;
-  max-height: 30%;
 
   .image {
     display: block;
     height: 100%;
+  }
+  .svg-image{
+    max-height: 240px;
+    max-width: 240px;
+  }
+}
+@media screen and (min-width: 1080px) {
+  .panel {
+    flex-direction: row;
+    flex-wrap: nowrap;
+  }
+  .image-viewer{
+    flex: 1;
+    align-self: stretch;
+    height: auto;
+    width: auto;
+    .image{
+      height: auto;
+      width: 100%;
+    }
+  }
+  .editor{
+    flex: 1;
+    align-self: center;
   }
 }
 
