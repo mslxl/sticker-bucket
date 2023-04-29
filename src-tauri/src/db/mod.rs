@@ -95,10 +95,11 @@ pub fn insert_meme(
     Ok(conn.last_insert_rowid())
 }
 
+/// 分页查询所有数据
 pub fn query_all_memes_by_page(conn: &Connection, page: i32) -> Result<Vec<Meme>, Error> {
-    let mut stmt = conn.prepare("SELECT id, content, extra_data, summary, desc FROM meme ORDER BY update_time DESC LIMIT 50 OFFSET ?1").unwrap();
+    let mut stmt = conn.prepare("SELECT id, content, extra_data, summary, desc FROM meme ORDER BY update_time DESC LIMIT 30 OFFSET ?1").unwrap();
     let iter = stmt
-        .query_map([page], |row| {
+        .query_map([page * 30], |row| {
             Ok(Meme {
                 id: row.get(0).unwrap(),
                 content: row.get(1).unwrap(),
