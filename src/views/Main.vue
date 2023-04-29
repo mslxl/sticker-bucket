@@ -9,7 +9,7 @@ import MButton from '../components/basic/Button.vue'
 import MTitleBar from '../components/basic/TitleBar.vue'
 
 import MMemeView from '../components/MemeView.vue'
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { getMemeByPage } from '../scripts/rs/db'
 
 library.add(faAdd, faPen, faX, faEllipsisV)
@@ -23,10 +23,31 @@ interface Meme {
 }
 
 const memes = reactive<Meme[]>([])
+const memeListDiv = ref<HTMLDivElement>()
+
+let currentPage = 0
+async function loadNextPage(): Promise<boolean> {
+  const data = await getMemeByPage(currentPage)
+  if(data.length > 0){
+    currentPage++;
+    memes.push(...data)
+    return true
+  }
+  return false
+}
+
 
 onMounted(async () => {
-  const data = await getMemeByPage(0)
-  memes.push(...data)
+  loadNextPage()
+  memeListDiv.value!.onscroll = () => {
+    let scrollTop = memeListDiv.value!.scrollTop
+    let scrollHeight = memeListDiv.value!.scrollHeight
+    let clientHeight = memeListDiv.value!.clientHeight
+
+    if(clientHeight + scrollTop >= scrollHeight){
+      loadNextPage()
+    }
+  }
 })
 
 </script>
@@ -45,7 +66,7 @@ m-title-bar(title="All")
   m-button.btn-item.btn-more 
     font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
 .meme-list
-  .content
+  .content(ref="memeListDiv")
     m-meme-view.meme-item(
       v-for="item in memes" 
       :summary="item.summary" 
