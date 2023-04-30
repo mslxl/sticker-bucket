@@ -23,7 +23,7 @@ createApp(App)
 const settings = useSettings()
 isDebug().then(debug => {
   settings.debug = debug
-  if (!debug) {
-    window.oncontextmenu = () => false
-  }
+  // if (!debug) {
+  //   window.oncontextmenu = () => false
+  // }
 })
