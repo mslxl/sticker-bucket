@@ -38,6 +38,7 @@ async function loadNextPage(): Promise<boolean> {
 
 
 onMounted(async () => {
+  currentPage = 0
   loadNextPage()
   memeListDiv.value!.onscroll = () => {
     let scrollTop = memeListDiv.value!.scrollTop
@@ -52,21 +53,18 @@ onMounted(async () => {
 
 </script>
 <template lang="pug">
-m-title-bar(title="All")
-  m-button.btn-item.btn-add(@click="$router.push({name: 'meme.add'})")
-    font-awesome-icon(icon="fa-solid fa-add")
-    span Add
-  m-divider(:vertical="true" :dark="true")
-  m-button.btn-item.btn-edit
-    font-awesome-icon(icon="fa-solid fa-pen")
-    span Edit
-  m-button.btn-item.btn-remove
-    font-awesome-icon(icon="fa-solid fa-x")
-    span Remove
-  m-button.btn-item.btn-more 
-    font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
-.meme-list
-  .content(ref="memeListDiv")
+.main
+  m-title-bar(title="All")
+    m-button.btn-item.btn-add(@click="$router.push({name: 'meme.add'})")
+      font-awesome-icon(icon="fa-solid fa-add")
+      span Add
+    m-divider(:vertical="true" :dark="true")
+    m-button.btn-item.btn-remove
+      font-awesome-icon(icon="fa-solid fa-x")
+      span Remove
+    m-button.btn-item.btn-more 
+      font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
+  .meme-list(ref="memeListDiv")
     m-meme-view.meme-item(
       v-for="item in memes" 
       :summary="item.summary" 
@@ -78,12 +76,14 @@ m-title-bar(title="All")
 
 
 <style scoped lang="scss">
-.meme-list {
+.main {
   height: 100%;
   width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-.meme-list .content {
+.meme-list {
   position: relative;
   padding: 24px;
   overflow-y: auto;
@@ -92,6 +92,7 @@ m-title-bar(title="All")
   height: 100%;
   display: grid;
   gap: 12px;
+  flex-grow: 1;
 
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
