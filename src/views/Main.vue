@@ -7,6 +7,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import MDivider from '../components/basic/Divider.vue'
 import MButton from '../components/basic/Button.vue'
 import MTitleBar from '../components/basic/TitleBar.vue'
+import MInputField from '../components/basic/InputField.vue'
 
 import MMemeView from '../components/MemeView.vue'
 import { onMounted, reactive, ref } from 'vue'
@@ -24,47 +25,67 @@ interface Meme {
 
 const memes = reactive<Meme[]>([])
 const memeListDiv = ref<HTMLDivElement>()
+const searchStatement = ref('')
 
 let currentPage = 0
-async function loadNextPage(): Promise<boolean> {
-  const data = await getMemeByPage(currentPage)
-  if(data.length > 0){
-    currentPage++;
-    memes.push(...data)
-    return true
-  }
-  return false
+
+async function updateSearchStmt() {
+  currentPage = 0
+  memes.splice(0, memes.length)
+  loadNextPage()
 }
 
+async function loadNextPage(): Promise<boolean> {
+  try{
+    const data = await getMemeByPage(searchStatement.value, currentPage)
+    if (data.length > 0) {
+      currentPage++;
+      memes.push(...data)
+      return true
+    }
+    return false
+  }catch(e){
+    console.error(e)
+    return false
+  }
+}
 
-onMounted(async () => {
-  currentPage = 0
-  loadNextPage()
-  memeListDiv.value!.onscroll = () => {
+function onListScroll(){
     let scrollTop = memeListDiv.value!.scrollTop
     let scrollHeight = memeListDiv.value!.scrollHeight
     let clientHeight = memeListDiv.value!.clientHeight
 
-    if(clientHeight + scrollTop >= scrollHeight){
+    if (clientHeight + scrollTop >= scrollHeight) {
       loadNextPage()
     }
-  }
+}
+
+
+onMounted(async () => {
+  await updateSearchStmt()
 })
 
 </script>
 <template lang="pug">
 .main
   m-title-bar(title="All")
-    m-button.btn-item.btn-add(@click="$router.push({name: 'meme.add'})")
-      font-awesome-icon(icon="fa-solid fa-add")
-      span Add
-    m-divider(:vertical="true" :dark="true")
-    m-button.btn-item.btn-remove
-      font-awesome-icon(icon="fa-solid fa-x")
-      span Remove
-    m-button.btn-item.btn-more 
-      font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
-  .meme-list(ref="memeListDiv")
+    template(#content)
+      m-input-field(
+        style="padding-left: 12px; padding-right: 12px;" 
+        placeholder="Search" 
+        v-model="searchStatement" 
+        @input="updateSearchStmt")
+    template(#default)
+      m-button.btn-item.btn-add(@click="$router.push({name: 'meme.add'})")
+        font-awesome-icon(icon="fa-solid fa-add")
+        span Add
+      m-divider(:vertical="true" :dark="true")
+      m-button.btn-item.btn-remove
+        font-awesome-icon(icon="fa-solid fa-x")
+        span Remove
+      m-button.btn-item.btn-more 
+        font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
+  .meme-list(ref="memeListDiv" @scroll="onListScroll")
     m-meme-view.meme-item(
       v-for="item in memes" 
       :summary="item.summary" 

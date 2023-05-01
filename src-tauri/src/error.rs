@@ -1,9 +1,13 @@
+
 use serde::Serialize;
+
+use crate::search::SearchError;
 
 #[derive(Debug)]
 pub enum Error {
     SQLiteError(rusqlite::Error),
-    IOError(std::io::Error)
+    IOError(std::io::Error),
+    SearchError(SearchError)
 }
 
 impl Serialize for Error {
@@ -14,6 +18,7 @@ impl Serialize for Error {
         match self {
             Error::SQLiteError(err) => serializer.serialize_str(&format!("{:?}", err)),
             Error::IOError(err) => serializer.serialize_str(&format!("{:?}", err)),
+            Error::SearchError(err) => serializer.serialize_str(&format!("{:?}", err)),
         }
     }
 }
@@ -29,3 +34,10 @@ impl From<std::io::Error> for Error{
         Self::IOError(value)
     }
 }
+
+impl From<SearchError> for Error {
+    fn from(value: SearchError) -> Self {
+        Self::SearchError(value)
+    }
+}
+ 

@@ -2,10 +2,13 @@
 
 const props = withDefaults(defineProps<{
   type?: 'text' | 'password',
-  modelValue?: string
+  modelValue?: string,
+  placeholder?: string,
 }>(), {
   type: 'text',
-  modelValue: ''
+  modelValue: '',
+  placeholder: ''
+
 })
 
 const emits = defineEmits<{
@@ -23,7 +26,7 @@ function updateModelValue(event: EventTarget | null){
 
 <template lang="pug">
 span.inputbox-wrapper
-  input(:type="props.type" :value="modelValue" @input="updateModelValue($event.target)" @focusout="emits('focusout')")
+  input(:type="props.type" :value="modelValue" @input="updateModelValue($event.target)" @focusout="emits('focusout')" :placeholder="placeholder")
   .suffix
     slot
 </template>

@@ -4,9 +4,10 @@
 use tauri::{CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 mod db;
-mod error;
-mod handler;
 mod meme;
+mod error;
+mod search;
+mod handler;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 
@@ -24,7 +25,6 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             handler::database::open_image_and_interfere,
             handler::database::add_meme,
-            handler::database::query_all_memes_by_page,
             handler::database::query_meme_by_id,
             handler::database::query_tag_by_meme_id,
             handler::database::query_namespace_with_prefix,
@@ -33,6 +33,7 @@ fn main() {
             handler::database::get_sqlite_version,
             handler::database::get_data_dir,
             handler::database::get_image_real_path,
+            handler::database::search_memes_by_text,
             handler::debug::is_debug
         ])
         .system_tray(tray)

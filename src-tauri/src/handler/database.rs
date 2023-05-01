@@ -130,9 +130,9 @@ pub async fn add_meme(
 }
 
 #[tauri::command]
-pub async fn query_all_memes_by_page(page: i32) -> Result<Vec<Meme>, Error> {
+pub async fn search_memes_by_text(stmt: &str, page: i32) -> Result<Vec<Meme>, Error>{
     let binding = DATABASE.lock().await;
-    Ok(db::query_all_memes_by_page(&binding, page)?)
+    Ok(db::search_meme_by_stmt(&binding, stmt, page)?)
 }
 
 #[tauri::command]

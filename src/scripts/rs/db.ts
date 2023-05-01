@@ -45,8 +45,8 @@ export async function addMemeToLib(file:string, summary: string, desc: string, t
   })
 }
 
-export async function getMemeByPage(page: number) : Promise<Meme[]>{
-  return invoke('query_all_memes_by_page', { page })
+export async function getMemeByPage(search_stmt: string, page: number) : Promise<Meme[]>{
+  return invoke('search_memes_by_text', {stmt: search_stmt, page })
 }
 
 export async function getImageRealPath(imageId: string) : Promise<string>{
