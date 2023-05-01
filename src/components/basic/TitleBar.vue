@@ -10,9 +10,11 @@ library.add(faArrowLeft)
 
 const props = withDefaults(defineProps<{
   title: string,
-  back?: boolean
+  back?: boolean,
+  showButtonBar:boolean
 }>(), {
-  back: false
+  back: false,
+  showButtonBar: true
 })
 
 </script>
@@ -23,6 +25,7 @@ const props = withDefaults(defineProps<{
       font-awesome-icon(icon="fa-solid fa-arrow-left")
     span {{ props.title }}
     .space
+      slot(name="content")
     slot
   m-divider(:dark="true")
 </template>

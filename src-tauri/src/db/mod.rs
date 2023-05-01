@@ -8,7 +8,7 @@ use sha256::try_digest;
 
 use crate::{
     error::Error,
-    handler::database::{Meme, Tag, DATABASE_FILE_DIR},
+    handler::database::{Meme, Tag, DATABASE_FILE_DIR}, search::build_search_sql,
 };
 
 static DATABASE_VERSION: u32 = 0;
@@ -95,26 +95,6 @@ pub fn insert_meme(
     Ok(conn.last_insert_rowid())
 }
 
-/// 分页查询所有数据
-pub fn query_all_memes_by_page(conn: &Connection, page: i32) -> Result<Vec<Meme>, Error> {
-    let mut stmt = conn.prepare("SELECT id, content, extra_data, summary, desc FROM meme ORDER BY update_time DESC LIMIT 30 OFFSET ?1").unwrap();
-    let iter = stmt
-        .query_map([page * 30], |row| {
-            Ok(Meme {
-                id: row.get(0).unwrap(),
-                content: row.get(1).unwrap(),
-                extra_data: row.get(2).ok(),
-                summary: row.get(3).unwrap(),
-                desc: row.get(4).unwrap(),
-            })
-        })?;
-    let mut memes = Vec::new();
-    for m in iter{
-        memes.push(m?);
-    }
-    Ok(memes)
-}
-
 pub fn query_meme_by_id(conn: &Connection, id: i64) -> Result<Meme, Error> {
     let result = conn.query_row(
         "SELECT id, content, extra_data, summary, desc FROM meme WHERE id = ?1",
@@ -130,6 +110,27 @@ pub fn query_meme_by_id(conn: &Connection, id: i64) -> Result<Meme, Error> {
         },
     )?;
     Ok(result)
+}
+
+pub fn search_meme_by_stmt(conn: &Connection, stmt: &str, page:i32) -> Result<Vec<Meme>, Error> {
+    let mut stmt = build_search_sql(stmt)?;
+    stmt.push_str(&format!("ORDER BY update_time DESC LIMIT 30 OFFSET {};", page * 30));
+    let mut stmt = conn.prepare(&stmt).unwrap();
+    let iter = stmt
+        .query_map([], |row| {
+            Ok(Meme {
+                id: row.get("id").unwrap(),
+                content: row.get("content").unwrap(),
+                extra_data: row.get("extra_data").ok(),
+                summary: row.get("summary").unwrap(),
+                desc: row.get("desc").unwrap(),
+            })
+        })?;
+    let mut memes = Vec::new();
+    for m in iter{
+        memes.push(m?);
+    }
+    Ok(memes)
 }
 
 pub fn query_all_meme_tag(conn: &Connection, id: i64) -> Result<Vec<Tag>, Error> {
