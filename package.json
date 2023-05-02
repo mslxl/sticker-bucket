@@ -16,6 +16,7 @@
     "@fortawesome/vue-fontawesome": "^3.0.3",
     "@tauri-apps/api": "^1.2.0",
     "animate.css": "^4.1.1",
+    "fabric": "^5.3.0",
     "normalize.css": "^8.0.1",
     "pinia": "^2.0.34",
     "pug": "^3.0.2",
