@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { watch, ref } from 'vue';
+import { ref } from 'vue';
 import { convertFileSrc } from '@tauri-apps/api/tauri'
 import { getImageRealPath } from '../scripts/rs/db'
-import MCard from './basic/Card.vue'
+import { ElCard, ElImage, ElSkeleton } from 'element-plus'
 import MDivider from './basic/Divider.vue'
 
 const props = defineProps<{
@@ -19,9 +19,16 @@ getImageRealPath(props.imageId).then((path) => {
 </script>
 
 <template lang="pug">
-m-card
-  .content
-    img.selectable(:src="imageURL")
+el-card(:body-style="{ padding: '0px' }")
+  el-image.img(
+    :src="imageURL"
+    loading="lazy"
+    fit="fill")
+    template(#placeholder)
+      el-skeleton(
+        :rows="5"
+        animated)
+  .content(style="padding: 14px;")
     .title.selectable {{ props.summary }}
   m-divider
   slot
@@ -29,13 +36,20 @@ m-card
 </template>
 
 <style scoped lang="scss">
-img{
+.img {
   width: 100%;
+  min-height: 6em;
+  display: block;
 }
-.title{
-  padding: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+.content{
+  width: 100%;
+  .title{
+    text-align: center;
+    width: 100%;
+  }
+}
+.el-card{
+  overflow: visible !important;
 }
 </style>
