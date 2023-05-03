@@ -23,7 +23,6 @@ fn main() {
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            handler::database::open_image_and_interfere,
             handler::database::add_meme,
             handler::database::query_meme_by_id,
             handler::database::query_tag_by_meme_id,
@@ -34,6 +33,9 @@ fn main() {
             handler::database::get_data_dir,
             handler::database::get_image_real_path,
             handler::database::search_memes_by_text,
+            handler::local::open_image_and_interfere,
+            handler::local::open_picture_list,
+            handler::local::interfere_image,
             handler::debug::is_debug
         ])
         .system_tray(tray)

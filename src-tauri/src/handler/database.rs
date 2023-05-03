@@ -8,7 +8,6 @@ use once_cell::sync::Lazy;
 
 use crate::db;
 use crate::error::Error;
-use crate::meme::interfer;
 
 pub static DATABASE_DIR: Lazy<PathBuf> = Lazy::new(|| {
     let p = BaseDirs::new()
@@ -70,29 +69,6 @@ pub struct Meme {
 pub struct Tag {
     pub namespace: String,
     pub value: String,
-}
-
-#[derive(Serialize)]
-pub struct InterferedMeme {
-    path: PathBuf,
-    summary: Option<String>,
-    tags: Vec<Tag>,
-}
-
-#[tauri::command]
-pub async fn open_image_and_interfere() -> Option<InterferedMeme> {
-    let path = tauri::api::dialog::blocking::FileDialogBuilder::new()
-        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp", "gif"])
-        .set_title("Add")
-        .pick_file()?;
-
-    let summary = interfer::interfer_summary(&path);
-    let tags = interfer::interfer_tags(&path, &summary);
-    Some(InterferedMeme {
-        path,
-        summary,
-        tags,
-    })
 }
 
 #[tauri::command]

@@ -12,26 +12,12 @@ export function getSQLiteVersion(): Promise<string>{
   return invoke('get_sqlite_version', {}) as Promise<string>
 }
 
-export interface MemeInterfer {
-  path: string,
-  summary: string | null,
-  desc: string | null,
-  tags: {
-    namespace: string,
-    value: string
-  }[]
-}
-
 export interface Meme{
   id: number,
   content: string,
   extraData: string,
   summary: string,
   desc: string
-}
-
-export async function openImageAndInterfer(): Promise<MemeInterfer | null> {
-  return await invoke('open_image_and_interfere', {}) as MemeInterfer | null
 }
 
 export async function addMemeToLib(file:string, summary: string, desc: string, tags: {namespace: string, value:string}[], removeAfterAdd: boolean, extraData?: string){

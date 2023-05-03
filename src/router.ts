@@ -3,7 +3,7 @@ import {createRouter, createWebHashHistory} from 'vue-router'
 const routes = [
   { path : '/', component: () => import('./views/Main.vue'), name: 'main' },
   { path : '/meme/add', component: () => import('./views/MemeAdd.vue'), name: 'meme.add'},
-
+  { path : '/meme/add/bulk', component: () => import('./views/MemeBulkAdd.vue'), name: 'meme.add.bulk' },
   // View
   { path : '/meme/view/{:id}', component: () => import('./views/MemeView.vue'), name: 'meme.view'},
   // Settings
