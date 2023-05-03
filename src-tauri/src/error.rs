@@ -1,4 +1,6 @@
 
+use std::sync::mpsc::RecvError;
+
 use serde::Serialize;
 
 use crate::search::SearchError;
@@ -7,7 +9,9 @@ use crate::search::SearchError;
 pub enum Error {
     SQLiteError(rusqlite::Error),
     IOError(std::io::Error),
-    SearchError(SearchError)
+    SearchError(SearchError),
+    RecvError(RecvError),
+    UserCancel
 }
 
 impl Serialize for Error {
@@ -19,6 +23,8 @@ impl Serialize for Error {
             Error::SQLiteError(err) => serializer.serialize_str(&format!("{:?}", err)),
             Error::IOError(err) => serializer.serialize_str(&format!("{:?}", err)),
             Error::SearchError(err) => serializer.serialize_str(&format!("{:?}", err)),
+            Error::RecvError(err) => serializer.serialize_str(&format!("{:?}", err)),
+            Error::UserCancel => serializer.serialize_str("User cancel operation"),
         }
     }
 }
@@ -41,3 +47,8 @@ impl From<SearchError> for Error {
     }
 }
  
+impl From<RecvError> for Error {
+    fn from(value: RecvError) -> Self {
+        Self::RecvError(value)
+    }
+}
