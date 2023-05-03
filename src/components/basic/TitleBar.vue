@@ -3,15 +3,15 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
+import { ElButton } from 'element-plus'
 import MDivider from './Divider.vue'
-import MButton from './Button.vue'
 
 library.add(faArrowLeft)
 
 const props = withDefaults(defineProps<{
   title: string,
   back?: boolean,
-  showButtonBar:boolean
+  showButtonBar?:boolean
 }>(), {
   back: false,
   showButtonBar: true
@@ -21,7 +21,11 @@ const props = withDefaults(defineProps<{
 <template lang="pug">
 .button-bar-wrapper
   .button-bar
-    m-button.btn-back(v-if="props.back && $router.back" @click="$router.back && $router.back()")
+    el-button.btn-back(
+      v-if="props.back && $router.back"
+      type=""
+      text
+      @click="$router.back && $router.back()")
       font-awesome-icon(icon="fa-solid fa-arrow-left")
     span {{ props.title }}
     .space
@@ -33,9 +37,8 @@ const props = withDefaults(defineProps<{
 <style scoped lang="scss">
 .button-bar {
   margin: 6px 12px 6px 12px;
-  height: 36px;
-  line-height: 36px;
   display: flex;
+  align-items: center;
   .btn-back{
     margin-right: 12px;
     line-height: normal;

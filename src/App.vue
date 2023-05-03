@@ -4,9 +4,6 @@ import { useSettings } from './store/settings'
 
 import Sidebar from './components/Sidebar.vue'
 
-
-
-const settings = useSettings()
 const router = useRouter()
 
 router.afterEach((to, from) => {
@@ -18,13 +15,13 @@ router.afterEach((to, from) => {
 </script>
 
 <template lang="pug">
-.container(:data-theme="settings.theme" :data-colorschema="settings.colorschema")
+.container(data-theme="dark" data-colorschema="blue")
   sidebar.sidebar
   .main-view
-      router-view(v-slot="{ Component, route }")
-        transition(enterActiveClass="animate__animated animate__faster animate__fadeIn" leaveActiveClass="animate__animated animate__faster animate__fadeOut")
-          .viewport(:key="route.path")
-            component(:is="Component" :key="route.path")
+    router-view(v-slot="{ Component, route }")
+      transition(enterActiveClass="animate__animated animate__faster animate__fadeIn" leaveActiveClass="animate__animated animate__faster animate__fadeOut")
+        .viewport(:key="route.path")
+          component(:is="Component" :key="route.path")
 </template>
 
 <style scoped lang="scss">

@@ -4,10 +4,9 @@ import { faAdd, faPen, faX, faEllipsisV } from '@fortawesome/free-solid-svg-icon
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 
-import MDivider from '../components/basic/Divider.vue'
-import MButton from '../components/basic/Button.vue'
+import { ElButton, ElButtonGroup, ElInfiniteScroll } from 'element-plus'
+import { ElInput } from 'element-plus'
 import MTitleBar from '../components/basic/TitleBar.vue'
-import MInputField from '../components/basic/InputField.vue'
 
 import MMemeView from '../components/MemeView.vue'
 import { onMounted, reactive, ref } from 'vue'
@@ -35,63 +34,55 @@ async function updateSearchStmt() {
   loadNextPage()
 }
 
-async function loadNextPage(): Promise<boolean> {
-  try{
-    const data = await getMemeByPage(searchStatement.value, currentPage)
+function loadNextPage() {
+  getMemeByPage(searchStatement.value, currentPage).then(data => {
     if (data.length > 0) {
       currentPage++;
       memes.push(...data)
-      return true
     }
-    return false
-  }catch(e){
+  }).catch(e => {
     console.error(e)
-    return false
-  }
+  })
 }
 
-function onListScroll(){
-    let scrollTop = memeListDiv.value!.scrollTop
-    let scrollHeight = memeListDiv.value!.scrollHeight
-    let clientHeight = memeListDiv.value!.clientHeight
-
-    if (clientHeight + scrollTop >= scrollHeight) {
-      loadNextPage()
-    }
-}
-
-
-onMounted(async () => {
-  await updateSearchStmt()
-})
+// onMounted(async () => {
+//   await updateSearchStmt()
+// })
 
 </script>
 <template lang="pug">
 .main
   m-title-bar(title="All")
     template(#content)
-      m-input-field(
-        style="padding-left: 12px; padding-right: 12px;" 
+      el-input(
+        style="padding-left: 24px; padding-right: 24px;" 
         placeholder="Search" 
         v-model="searchStatement" 
         @input="updateSearchStmt")
     template(#default)
-      m-button.btn-item.btn-add(@click="$router.push({name: 'meme.add'})")
-        font-awesome-icon(icon="fa-solid fa-add")
-        span Add
-      m-divider(:vertical="true" :dark="true")
-      m-button.btn-item.btn-remove
-        font-awesome-icon(icon="fa-solid fa-x")
-        span Remove
-      m-button.btn-item.btn-more 
-        font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
-  .meme-list(ref="memeListDiv" @scroll="onListScroll")
-    m-meme-view.meme-item(
-      v-for="item in memes" 
-      :summary="item.summary" 
-      :image-id="item.content" 
-      :key="item.id" 
-      @click="$router.push({name: 'meme.view', params: {id: item.id}})")
+      el-button-group
+        el-button.btn-item.btn-add(
+          type=""
+          text
+          @click="$router.push({name: 'meme.add'})")
+          font-awesome-icon(icon="fa-solid fa-add")
+          span Add
+        el-button.btn-item.btn-remove(
+          type=""
+          text)
+          font-awesome-icon(icon="fa-solid fa-x")
+          span Remove
+        el-button.btn-item.btn-more(
+          type=""
+          text)
+          font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
+  ul.meme-list(ref="memeListDiv" v-infinite-scroll="loadNextPage" :infinite-scroll-distance="60")
+    li(v-for="item in memes" )
+      m-meme-view.meme-item(
+        :summary="item.summary" 
+        :image-id="item.content" 
+        :key="item.id" 
+        @click="$router.push({name: 'meme.view', params: {id: item.id}})")
 
 </template>
 
@@ -102,6 +93,19 @@ onMounted(async () => {
   width: 100%;
   display: flex;
   flex-direction: column;
+}
+
+ul {
+  list-style-type: none;
+
+  li {
+    display: block;
+  }
+
+  li>.meme-item {
+    width: 100%;
+    height: 100%;
+  }
 }
 
 .meme-list {

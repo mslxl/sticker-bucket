@@ -6,7 +6,7 @@
 import { ref } from 'vue'
 
 import MTitleBar from '../../components/basic/TitleBar.vue'
-import MCard from '../../components/basic/Card.vue'
+import { ElCard } from 'element-plus'
 
 import { getDataDir, getSQLiteVersion, getTableVersion } from '../../scripts/rs/db'
 
@@ -33,18 +33,21 @@ getSQLiteVersion().then(version => itemSQLiteVersion.value = version)
 m-title-bar(title="About" :back="true")
 
 .panel
-  m-card.preference-item
-    span Data Location
-    .space
-    span.selectable {{ showOrTip(itemDatabseDir) }}
-  m-card.preference-item
-    span Bundled Database
-    .space
-    span.selectable {{ showOrTip(itemSQLiteVersion) }}
-  m-card.preference-item
-    span Database Table Version
-    .space
-    span.selectable {{ showOrTip(itemTableVersionCode) }}
+  el-card(:body-style="{ padding: '0px'}")
+    .preference-item
+      span Data Location
+      .space
+      span.selectable {{ showOrTip(itemDatabseDir) }}
+  el-card(:body-style="{ padding: '0px'}")
+    .preference-item
+      span Bundled Database
+      .space
+      span.selectable {{ showOrTip(itemSQLiteVersion) }}
+  el-card(:body-style="{ padding: '0px'}")
+    .preference-item
+      span Database Table Version
+      .space
+      span.selectable {{ showOrTip(itemTableVersionCode) }}
 
 </template>
 

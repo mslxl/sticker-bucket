@@ -7,8 +7,8 @@ import { library } from '@fortawesome/fontawesome-svg-core'
 import { faPenToSquare } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
+import { ElCard, ElButton } from 'element-plus'
 import MTitlebar from '../components/basic/TitleBar.vue'
-import MCard from '../components/basic/Card.vue'
 import MTag from '../components/basic/Tag.vue'
 
 import { convertFileSrc } from '@tauri-apps/api/tauri'
@@ -35,8 +35,8 @@ async function loadData() {
   tags.clear()
   meme.value = await getMemeByID(imageId)
   imageURL.value = convertFileSrc(await getImageRealPath(meme.value.content))
-  for(let tag of await getTagByMemeID(meme.value.id)){
-    if(!tags.has(tag.namespace)) tags.set(tag.namespace, [])
+  for (let tag of await getTagByMemeID(meme.value.id)) {
+    if (!tags.has(tag.namespace)) tags.set(tag.namespace, [])
     tags.get(tag.namespace)!.push(tag.value)
   }
 }
@@ -47,12 +47,14 @@ onMounted(() => {
 
 <template lang="pug">
 m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
-  m-button.btn-item()
+  el-button.btn-item(
+    type=""
+    text)
     font-awesome-icon(icon="fa-solid fa-pen-to-square")
     span Edit
 
 .panel
-  m-card.image__overlay
+  el-card.image__overlay
     img(:src="imageURL")
   .info
     span.name Summary
@@ -108,7 +110,8 @@ m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
   display: grid;
   grid-template-columns: auto 1fr;
 }
-.tag-panel{
+
+.tag-panel {
   margin: 12px;
   padding: 12px;
   display: grid;
@@ -116,7 +119,7 @@ m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
   gap: 8px;
   grid-template-columns: auto 1fr;
 
-  .tag-value{
+  .tag-value {
     display: block;
 
   }

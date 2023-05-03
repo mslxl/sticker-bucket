@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import MTitleBar from '../../components/basic/TitleBar.vue'
-import MCard from '../../components/basic/Card.vue'
+import { ElCard } from 'element-plus'
 
 </script>
 <template lang="pug">
 m-title-bar(title="Settings")
 
 .panel
-  m-card.preference-item(@click="$router.push({name: 'settings.about'})")
+  el-card.preference-item(
+    :body-style="{ padding: '0px'}"
+    @click="$router.push({name: 'settings.about'})")
     span About
 </template>
 
