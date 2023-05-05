@@ -53,14 +53,14 @@ onMounted(async () => {
 const editorDeleteFile = ref(true)
 const editorSummary = ref('')
 const editorDesc = ref('')
-const editorTags = ref<{namespace: string, value: string}[]>([])
+const editorTags = ref<{namespace: string, value: string, lock?: boolean}[]>([])
 
 function nextPicture(){
   if(picIdx.value != picPath.value.length){
     picIdx.value = picIdx.value + 1
     editorSummary.value = ''
     editorDesc.value = ''
-    editorTags.value = []
+    editorTags.value = editorTags.value.filter(tag=>tag.lock === true)
   }
 }
 
