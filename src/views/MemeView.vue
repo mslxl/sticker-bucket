@@ -8,8 +8,8 @@ import { faPenToSquare } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 import { ElCard, ElButton } from 'element-plus'
+import { ElTag, ElSpace } from 'element-plus'
 import MTitlebar from '../components/basic/TitleBar.vue'
-import MTag from '../components/basic/Tag.vue'
 
 import { convertFileSrc } from '@tauri-apps/api/tauri'
 
@@ -64,9 +64,13 @@ m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
       span.value {{ meme?.desc }}
   .tag-panel
     template(v-for="space in tags.entries()")
-      m-tag {{ space[0] }}
-      span.tag-value
-        m-tag(v-for="value in space[1]") {{ value }}
+      el-tag(type="info" effect="dark") {{ space[0] }}
+      el-space
+        el-tag.selectable(
+          v-for="value in space[1]"
+          :key="value"
+          type="info"
+          effect="plain") {{ value }}
       
 </template>
 
@@ -119,10 +123,6 @@ m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
   gap: 8px;
   grid-template-columns: auto 1fr;
 
-  .tag-value {
-    display: block;
-
-  }
 }
 
 .btn-item {

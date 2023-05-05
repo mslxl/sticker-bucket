@@ -1,20 +1,21 @@
 <script setup lang="ts">
 
 import { library } from '@fortawesome/fontawesome-svg-core'
-import { faTurnDown } from '@fortawesome/free-solid-svg-icons'
+import { faTurnDown, faLock } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 import { computed, watch, ref } from 'vue'
 import { queryNamespaceWithPrefix, queryTagValueWithPrefix } from '../scripts/rs/db'
 
 import { ElCheckbox, ElInput, ElButton, ElAutocomplete } from 'element-plus'
-import MTag from '../components/basic/Tag.vue'
+import { ElTag, ElSpace } from 'element-plus'
 
 
-library.add(faTurnDown)
+library.add(faTurnDown, faLock)
 interface Tag {
   namespace: string,
   value: string,
+  lock?: boolean
 }
 
 const props = defineProps<{
@@ -31,19 +32,16 @@ const emits = defineEmits<{
   (e: 'update:tags', value: Tag[]): void
 }>()
 
-const imageTagsKV = computed(() => props.tags.reduce((map: Map<string, string[]>, cur: Tag) => {
+const imageTagsKV = computed(() => props.tags.reduce((map: Map<string, Tag[]>, cur: Tag) => {
   if (map.has(cur.namespace)) {
-    map.get(cur.namespace)!.push(cur.value)
+    map.get(cur.namespace)!.push(cur)
   } else {
-    map.set(cur.namespace, [cur.value])
+    map.set(cur.namespace, [cur])
   }
   return map
-}, new Map<string, string[]>()))
+}, new Map<string, Tag[]>()))
 
 const imageNamespace = computed(() => Array.from(imageTagsKV.value.keys()))
-watch(imageTagsKV, (v) => {
-  console.log(v)
-})
 
 const tagInput = ref('')
 
@@ -51,6 +49,7 @@ const autoComplateField = ref<InstanceType<typeof ElAutocomplete>>()
 
 function triggerValueComplate(){
   if(tagInput.value.endsWith(':')){
+    // 重新激活自动补全
     autoComplateField.value!.blur()
     setTimeout(()=>{
       autoComplateField.value!.focus()
@@ -95,6 +94,20 @@ function removeTag(namespace: string, value: string) {
   emits('update:tags', newTags)
 }
 
+function toggleLockTag(namespace: string, value: string){
+  let newTags = props.tags.map(v => {
+    if(v.namespace == namespace && v.value == value){
+      if(v.lock){
+        v.lock = false
+      }else{
+        v.lock = true
+      }
+    }
+    return v
+  })
+  emits('update:tags', newTags)
+}
+
 </script>
 <template lang="pug">
 .editor
@@ -136,13 +149,20 @@ function removeTag(namespace: string, value: string) {
       @click="addNewTag")
       font-awesome-icon(icon="fa-solid fa-turn-down fa-rotate-90")
   template(v-for="nsp in imageNamespace" :key="nsp")
-    m-tag {{  nsp }}
+    el-tag(size="large" type="info" effect="dark") {{  nsp }}
     .tag-value
-      m-tag.tag-item(
-        v-for="value in imageTagsKV.get(nsp)"
-        :key="nsp+value"
-        :closable="true"
-        @on-close="removeTag(nsp, value)") {{  value  }}
+      el-tag.tag-item(
+        v-for="tag in imageTagsKV.get(nsp)"
+        :key="nsp+tag.value"
+        type="info"
+        size="large"
+        closable
+        :effect="tag.lock? 'light': 'plain'"
+        @click="toggleLockTag(nsp, tag.value)"
+        @close="removeTag(nsp, tag.value)")
+        el-space
+          font-awesome-icon(icon="fa-solid fa-lock" v-if="tag.lock")
+          span {{  tag.value  }}
 
 </template>
 
