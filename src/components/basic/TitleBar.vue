@@ -39,6 +39,7 @@ const props = withDefaults(defineProps<{
   margin: 6px 12px 6px 12px;
   display: flex;
   align-items: center;
+  min-height: 32px;
   .btn-back{
     margin-right: 12px;
     line-height: normal;

@@ -58,6 +58,9 @@ const editorTags = ref<{namespace: string, value: string}[]>([])
 function nextPicture(){
   if(picIdx.value != picPath.value.length){
     picIdx.value = picIdx.value + 1
+    editorSummary.value = ''
+    editorDesc.value = ''
+    editorTags.value = []
   }
 }
 
@@ -66,11 +69,12 @@ async function addMeme(){
     return
   }
   try{
+    if(editorSummary.value.trim().length == 0) {
+      ElMessage.error('Summary can not be empty')
+      return
+    }
     await addMemeToLib(picPath.value[picIdx.value], editorSummary.value, editorDesc.value, editorTags.value, editorDeleteFile.value)
     nextPicture()
-    editorSummary.value = ''
-    editorDesc.value = ''
-    editorTags.value = []
   }catch(e){
     ElMessage.error(String(e))
   }
@@ -85,8 +89,12 @@ el-container.viewport(v-if="picIdx != -1 && picIdx != picPath.length")
     m-titlebar(:back="true" :title="`Bulk add: ${basename}(${picIdx+1}/${picPath.length})`")
       template(#default)
         el-button-group
-          el-button(@click="nextPicture") Skip
-          el-button(@click="addMeme") Next
+          el-button(@click="nextPicture") 
+            font-awesome-icon(icon="fa-solid fa-trash")
+            span(style="margin-left: 6px;") Skip
+          el-button(@click="addMeme") 
+            font-awesome-icon(icon="fa-solid fa-arrow-right")
+            span(style="margin-left: 6px;") Next
   el-main.bulk-main
     el-progress.bulk-progress(
       :text-inside="true"

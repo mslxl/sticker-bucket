@@ -54,3 +54,11 @@ export async function getMemeByID(id: number): Promise<Meme> {
 export async function getTagByMemeID(id: number): Promise<{namespace: string, value: string}[]>{
   return invoke('query_tag_by_meme_id', {id})
 }
+
+export async function queryCountMemes(): Promise<number> {
+  return invoke('query_count_memes', {})
+}
+
+export async function queryCountTags(): Promise<number>{
+  return invoke('query_count_tags', {})
+}

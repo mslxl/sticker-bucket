@@ -1,10 +1,10 @@
-use std::fs;
-use tokio::sync::Mutex;
-use std::{path::PathBuf, borrow::Cow};
-use serde::{Deserialize, Serialize};
 use directories::BaseDirs;
-use rusqlite::Connection;
 use once_cell::sync::Lazy;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::{borrow::Cow, path::PathBuf};
+use tokio::sync::Mutex;
 
 use crate::db;
 use crate::error::Error;
@@ -34,7 +34,6 @@ static DATABASE: Lazy<Mutex<Connection>> = Lazy::new(|| {
     Mutex::new(conn)
 });
 
-
 #[tauri::command]
 pub async fn get_table_version() -> Result<i64, Error> {
     let binding = &DATABASE.lock().await;
@@ -52,7 +51,7 @@ pub fn get_data_dir() -> Cow<'static, str> {
 }
 
 #[tauri::command]
-pub fn get_image_real_path(image_id: &str)-> PathBuf {
+pub fn get_image_real_path(image_id: &str) -> PathBuf {
     DATABASE_FILE_DIR.join(image_id)
 }
 
@@ -79,25 +78,24 @@ pub async fn add_meme(
     desc: Option<String>,
     tags: Vec<Tag>,
     remove_after_add: bool,
-) -> Result<bool, Error>{
+) -> Result<bool, Error> {
     let mut binding = DATABASE.lock().await;
     let transaction = binding.transaction().unwrap();
-
 
     let file_id = db::add_file(file, remove_after_add)?;
     let mut tag_id = Vec::new();
 
     // insert tag to database
-    for t in tags{
+    for t in tags {
         let id = db::query_or_insert_tag(&transaction, &t.namespace, &t.value)?;
         tag_id.push(id);
     }
-    
+
     // insert meme to database
     let meme_id = db::insert_meme(&transaction, file_id, extra_data, summary, desc, None)?;
 
     // link meme and tag
-    for id in tag_id{
+    for id in tag_id {
         db::link_tag_meme(&transaction, id, meme_id)?
     }
 
@@ -106,7 +104,7 @@ pub async fn add_meme(
 }
 
 #[tauri::command]
-pub async fn search_memes_by_text(stmt: &str, page: i32) -> Result<Vec<Meme>, Error>{
+pub async fn search_memes_by_text(stmt: &str, page: i32) -> Result<Vec<Meme>, Error> {
     let binding = DATABASE.lock().await;
     Ok(db::search_meme_by_stmt(&binding, stmt, page)?)
 }
@@ -130,8 +128,23 @@ pub async fn query_namespace_with_prefix(prefix: &str) -> Result<Vec<String>, Er
 }
 
 #[tauri::command]
-pub async fn query_tag_value_with_prefix(namespace: &str, prefix: &str) -> Result<Vec<String>, Error> {
+pub async fn query_tag_value_with_prefix(
+    namespace: &str,
+    prefix: &str,
+) -> Result<Vec<String>, Error> {
     let binding = DATABASE.lock().await;
     let res = db::query_tag_value_with_prefix(&binding, namespace, prefix)?;
     Ok(res)
+}
+
+#[tauri::command]
+pub async fn query_count_memes() -> Result<i64, Error> {
+    let binding = DATABASE.lock().await;
+    db::query_count_memes(&binding)
+}
+
+#[tauri::command]
+pub async fn query_count_tags() -> Result<i64, Error> {
+    let binding = DATABASE.lock().await;
+    db::query_count_tags(&binding)
 }
