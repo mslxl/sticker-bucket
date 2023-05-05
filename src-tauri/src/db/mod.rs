@@ -187,6 +187,18 @@ pub fn query_tag_value_with_prefix(
     Ok(tag_value)
 }
 
+pub fn query_count_memes(conn: &Connection) -> Result<i64, Error> {
+    conn.query_row("SELECT COUNT(id) FROM meme", [], |v| Ok(v.get(0).unwrap()))
+        .map_err(Error::from)
+}
+
+pub fn query_count_tags(conn: &Connection) -> Result<i64, Error> {
+    conn.query_row("SELECT COUNT(id) FROM tag", [], |v| Ok(v.get(0).unwrap()))
+        .map_err(Error::from)
+
+}
+
+
 fn add_file_to_library<P: AsRef<Path>>(file: P) -> Result<String, Error> {
     let sha256 = try_digest(file.as_ref())?;
     let target = DATABASE_FILE_DIR.join(&sha256);

@@ -33,17 +33,17 @@ getSQLiteVersion().then(version => itemSQLiteVersion.value = version)
 m-title-bar(title="About" :back="true")
 
 .panel
-  el-card(:body-style="{ padding: '0px'}")
+  el-card
     .preference-item
       span Data Location
       .space
       span.selectable {{ showOrTip(itemDatabseDir) }}
-  el-card(:body-style="{ padding: '0px'}")
+  el-card
     .preference-item
       span Bundled Database
       .space
       span.selectable {{ showOrTip(itemSQLiteVersion) }}
-  el-card(:body-style="{ padding: '0px'}")
+  el-card
     .preference-item
       span Database Table Version
       .space
@@ -53,17 +53,15 @@ m-title-bar(title="About" :back="true")
 
 <style scoped lang="scss">
 .panel {
-  padding: 12px 24px 12px 24px;
+  padding: 24px;
 
   .preference-item {
     display: flex;
-    padding: 12px;
-
     .space {
       flex: 1;
     }
+    margin-bottom: 1px;
   }
-
 }
 
 .btn-item {

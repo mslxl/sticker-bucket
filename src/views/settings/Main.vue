@@ -1,30 +1,42 @@
 <script setup lang="ts">
 import MTitleBar from '../../components/basic/TitleBar.vue'
+import { ElRow, ElCol } from 'element-plus'
+import { ElStatistic } from 'element-plus'
 import { ElCard } from 'element-plus'
+
+import { ref } from 'vue'
+import { queryCountMemes, queryCountTags } from '../../scripts/rs/db'
+
+const cntMemes = ref(-1)
+const cntTags = ref(-1)
+
+queryCountMemes().then(cnt => cntMemes.value = cnt)
+queryCountTags().then(cnt => cntTags.value = cnt)
+
+
 
 </script>
 <template lang="pug">
 m-title-bar(title="Settings")
-
 .panel
-  el-card.preference-item(
-    :body-style="{ padding: '0px'}"
+  el-row.statistic
+    el-col(:span="12")
+      el-statistic(title="Total Memes" :value="cntMemes")
+    el-col(:span="12")
+      el-statistic(title="Total Tags" :value="cntTags")
+    //- el-col(:span="8")
+    //-   el-statistic(title="Total meme template" :value="0")
+  el-card(
     @click="$router.push({name: 'settings.about'})")
     span About
 </template>
 
 <style scoped lang="scss">
 .panel {
-  padding: 12px 24px 12px 24px;
+  padding: 24px;
+}
 
-  .preference-item {
-    display: flex;
-    padding: 12px;
-
-    .space {
-      flex: 1;
-    }
-  }
-
+.statistic {
+  margin: 12px;
 }
 </style>
