@@ -23,7 +23,7 @@ pub fn handle_version(conn: &mut Connection) -> Result<(), Error> {
         "SELECT version_code FROM table_version WHERE id = 1;",
         (),
         |row| Ok(row.get(0)?),
-    )?;
+    ).optional()?;
     if let Some(version) = version {
         // old database
         if version < DATABASE_VERSION {
