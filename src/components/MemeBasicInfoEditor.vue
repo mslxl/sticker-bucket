@@ -18,12 +18,15 @@ interface Tag {
   lock?: boolean
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   deleteFile: boolean,
   summary: string,
   description: string
-  tags: Tag[]
-}>()
+  tags: Tag[],
+  allowLock?: boolean
+}>(), {
+  allowLock: false
+})
 
 const emits = defineEmits<{
   (e: 'update:deleteFile', value: boolean): void
@@ -47,11 +50,18 @@ const tagInput = ref('')
 
 const autoComplateField = ref<InstanceType<typeof ElAutocomplete>>()
 
-function triggerValueComplate(){
-  if(tagInput.value.endsWith(':')){
+function clear() {
+  emits('update:tags', props.tags.filter((tag) => tag.lock))
+  emits('update:description', '')
+  emits('update:summary', '')
+}
+
+
+function triggerValueComplate() {
+  if (tagInput.value.endsWith(':')) {
     // 重新激活自动补全
     autoComplateField.value!.blur()
-    setTimeout(()=>{
+    setTimeout(() => {
       autoComplateField.value!.focus()
       autoComplateField.value!.inputRef!.input!.setSelectionRange(tagInput.value.length, tagInput.value.length)
     }, 100)
@@ -66,8 +76,8 @@ function fetchTagComplate(queryString: string, callback: (arg: any) => void) {
       callback(value.sort().map(v => { return { value: `${namespace}:${v}`, display: v, type: 'Value' } }))
     })
   } else {
-    queryNamespaceWithPrefix(queryString).then((value)=>{
-      callback(value.sort().map(v => { return { value: `${v}:`, display: v, type: 'Namespace'}}))
+    queryNamespaceWithPrefix(queryString).then((value) => {
+      callback(value.sort().map(v => { return { value: `${v}:`, display: v, type: 'Namespace' } }))
     })
   }
 }
@@ -94,12 +104,13 @@ function removeTag(namespace: string, value: string) {
   emits('update:tags', newTags)
 }
 
-function toggleLockTag(namespace: string, value: string){
+function toggleLockTag(namespace: string, value: string) {
+  if (!props.allowLock) return
   let newTags = props.tags.map(v => {
-    if(v.namespace == namespace && v.value == value){
-      if(v.lock){
+    if (v.namespace == namespace && v.value == value) {
+      if (v.lock) {
         v.lock = false
-      }else{
+      } else {
         v.lock = true
       }
     }
@@ -108,6 +119,10 @@ function toggleLockTag(namespace: string, value: string){
   emits('update:tags', newTags)
 }
 
+defineExpose({
+  clear,
+  triggerValueComplate
+})
 </script>
 <template lang="pug">
 .editor
@@ -172,18 +187,21 @@ function toggleLockTag(namespace: string, value: string){
   grid-template-columns: auto 1fr;
   gap: 8px;
 }
-.autocomplete__wrapper{
+
+.autocomplete__wrapper {
   display: flex;
   align-items: center;
 }
-.complate-item{
+
+.complate-item {
   display: flex;
-  .flex-space{
+
+  .flex-space {
     flex-grow: 1;
   }
-  .type{
+
+  .type {
     font-size: smaller;
     font-style: italic;
   }
-}
-</style>
+}</style>

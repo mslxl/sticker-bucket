@@ -50,6 +50,7 @@ onMounted(async () => {
   }
 })
 
+const editor = ref<InstanceType<typeof MemeBasicInfoEditor>>()
 const editorDeleteFile = ref(true)
 const editorSummary = ref('')
 const editorDesc = ref('')
@@ -57,10 +58,8 @@ const editorTags = ref<{namespace: string, value: string, lock?: boolean}[]>([])
 
 function nextPicture(){
   if(picIdx.value != picPath.value.length){
+    editor.value?.clear()
     picIdx.value = picIdx.value + 1
-    editorSummary.value = ''
-    editorDesc.value = ''
-    editorTags.value = editorTags.value.filter(tag=>tag.lock === true)
   }
 }
 
@@ -106,6 +105,8 @@ el-container.viewport(v-if="picIdx != -1 && picIdx != picPath.length")
         :src="imageLocalURL")
     .bulk-editor
       meme-basic-info-editor(
+        ref="editor"
+        :allow-lock="true"
         v-model:delete-file="editorDeleteFile"
         v-model:summary="editorSummary"
         v-model:description="editorDesc"
