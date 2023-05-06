@@ -1,0 +1,10 @@
+cmake-build-debug
+
+*.exe
+*.dll
+*.lib
+
+*.so
+*.a
+
+!/3rd_party/*
