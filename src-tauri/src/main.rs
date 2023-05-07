@@ -19,6 +19,7 @@ fn build_system_tray() -> SystemTray {
     SystemTray::new().with_menu(tray_menu)
 }
 fn main() {
+    human_panic::setup_panic!();
     let tray = build_system_tray();
 
     tauri::Builder::default()
