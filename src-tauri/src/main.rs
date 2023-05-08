@@ -7,6 +7,7 @@ mod db;
 mod meme;
 mod error;
 mod search;
+mod bridge;
 mod handler;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
