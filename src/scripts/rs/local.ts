@@ -11,7 +11,11 @@ export interface MemeInterfer {
 }
 
 export async function openImageAndInterfer(): Promise<MemeInterfer | null> {
-  return await invoke('open_image_and_interfere', {}) as MemeInterfer | null
+  return invoke('open_image_and_interfere', {}) 
+}
+
+export async function interferImage(path: string): Promise<MemeInterfer|null> {
+  return invoke('interfere_image', { path })
 }
 
 export async function openPicturesList():Promise<string[]>{

@@ -86,14 +86,16 @@ std::vector<std::vector<cv::Point2f> > TextDetector::detect(cv::Mat &srcimg) {
     std::vector<Ort::Value> ort_outputs = net->Run(Ort::RunOptions{nullptr}, &input_names[0], &input_tensor_, 1,
                                                    output_names.data(), output_names.size());
     const float *floatArray = ort_outputs[0].GetTensorMutableData<float>();
+    
+    auto outputInfo = ort_outputs[0].GetTensorTypeAndShapeInfo();
+
     int outputCount = 1;
-    for (int i = 0; i < ort_outputs.at(0).GetTensorTypeAndShapeInfo().GetShape().size(); i++) {
-        int dim = ort_outputs.at(0).GetTensorTypeAndShapeInfo().GetShape().at(i);
-        outputCount *= dim;
+    for (unsigned int shapeI = 0; shapeI < outputInfo.GetShape().size(); shapeI++){
+        outputCount *= outputInfo.GetShape()[shapeI];
     }
 
     cv::Mat binary(dstimg.rows, dstimg.cols, CV_32FC1);
-    memcpy(binary.data, floatArray, outputCount * sizeof(float));
+    memcpy(binary.data, floatArray, std::min(outputCount, dstimg.rows * dstimg.cols) * sizeof(float));
 
     // Threshold
     cv::Mat bitmap;
@@ -149,6 +151,7 @@ std::vector<std::vector<cv::Point2f> > TextDetector::detect(cv::Mat &srcimg) {
 
         cv::Point2f vertex[4];
         box.points(vertex);  // order: bl, tl, tr, br
+
         std::vector<cv::Point2f> approx;
         for (int j = 0; j < 4; j++)
             approx.emplace_back(vertex[j]);
@@ -159,6 +162,12 @@ std::vector<std::vector<cv::Point2f> > TextDetector::detect(cv::Mat &srcimg) {
         longSide = std::max(box.size.width, box.size.height);
         if (longSide < long_side_thresh + 2) {
             continue;
+        }
+        for(auto& v: polygon){
+            v.x = std::min(v.x, float(srcimg.cols-1));
+            v.y = std::min(v.y, float(srcimg.rows-1));
+            v.x = std::max(v.x, float(0));
+            v.y = std::max(v.y, float(0));
         }
 
         results.push_back(polygon);

@@ -37,14 +37,15 @@ void test_onnx(){
 
 void test_ocr(){
 
-    std::string image_path = "../test_image.jpg";
+    auto image_path = "C:\\Users\\lnslf\\Pictures\\meme\\Meme\\นทนท\\25.png";
 
-    std::cout << ocr_image(image_path.data());
+    std::cout << ocr_image(image_path);
 }
 
 int main() {
 #define named_function_ptr(name) std::make_pair(#name, name)
-    auto ptr= std::vector({
+
+    auto ptr = std::vector({
                                   named_function_ptr(test_image),
                                   named_function_ptr(test_onnx),
                                   named_function_ptr(test_ocr)

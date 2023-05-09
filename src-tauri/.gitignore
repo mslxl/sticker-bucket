@@ -1,4 +1,7 @@
 /target/
 /model/
-/libs/
-/bridge.rs
+
+*.dll
+*.so
+*.lib
+*.a

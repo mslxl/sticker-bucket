@@ -15,7 +15,7 @@ public:
 
 private:
     cv::Mat preprocess(cv::Mat srcimg);
-    void normalize_(cv::Mat img);
+    void normalize(cv::Mat img);
     const int inpWidth = 320;
     const int inpHeight = 48;
 

@@ -58,7 +58,7 @@ cv::Mat TextRecognizer::preprocess(cv::Mat srcimg)
     return dstimg;
 }
 
-void TextRecognizer::normalize_(cv::Mat img)
+void TextRecognizer::normalize(cv::Mat img)
 {
     //    img.convertTo(img, CV_32F);
     int row = img.rows;
@@ -87,7 +87,7 @@ void TextRecognizer::normalize_(cv::Mat img)
 std::string TextRecognizer::predict_text(cv::Mat cv_image)
 {
     cv::Mat dstimg = this->preprocess(cv_image);
-    this->normalize_(dstimg);
+    this->normalize(dstimg);
 
     std::array<int64_t, 4> input_shape_{ 1, 3, this->inpHeight, this->inpWidth };
 
