@@ -1,7 +1,8 @@
 {
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "python src-tauri/copy-resource.py && pnpm dev",
+    "beforeBuildCommand": "python src-tauri/copy-resource.py && pnpm build",
+    "beforeBundleCommand": "python src-tauri/copy-resource.py",
     "devPath": "http://localhost:1420",
     "distDir": "../dist",
     "withGlobalTauri": false
@@ -29,6 +30,10 @@
       }
     },
     "bundle": {
+      "resources": [
+        "./model/",
+        "./*.dll"
+      ],
       "active": true,
       "icon": [
         "icons/32x32.png",

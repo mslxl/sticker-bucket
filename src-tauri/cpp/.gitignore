@@ -1,0 +1,12 @@
+/build/
+
+*.exe
+*.dll
+*.lib
+
+*.so
+*.a
+
+/bridge.rs
+
+!/3rd_party/*

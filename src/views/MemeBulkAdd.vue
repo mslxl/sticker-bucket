@@ -12,7 +12,7 @@ import { ElContainer, ElHeader, ElMain } from 'element-plus'
 import { ElProgress, ElButton, ElButtonGroup} from 'element-plus'
 import { ElResult, ElMessage } from 'element-plus'
 
-import { openPicturesList } from '../scripts/rs/local'
+import { openPicturesList, interferImage } from '../scripts/rs/local'
 import { addMemeToLib } from '../scripts/rs/db'
 import MTitlebar from '../components/basic/TitleBar.vue'
 import MemeBasicInfoEditor from '../components/MemeBasicInfoEditor.vue'
@@ -43,8 +43,10 @@ onMounted(async () => {
     let list = await openPicturesList()
     picPath.value = list
     picIdx.value = 0
+    await fillInterfer()
     loadingInstance.close()
   } catch (e) {
+    console.error(e)
     loadingInstance.close()
     router.back()
   }
@@ -56,10 +58,22 @@ const editorSummary = ref('')
 const editorDesc = ref('')
 const editorTags = ref<{namespace: string, value: string, lock?: boolean}[]>([])
 
-function nextPicture(){
+async function fillInterfer(){
+  if(picIdx.value < 0) return;
+  let result = await interferImage(picPath.value[picIdx.value])
+  console.log(result)
+  if(result) {
+    editorSummary.value = result.summary || ""
+    editorDesc.value = result.desc || ""
+    editorTags.value.push(...result.tags)
+  }
+}
+
+async function nextPicture(){
   if(picIdx.value != picPath.value.length){
     editor.value?.clear()
     picIdx.value = picIdx.value + 1
+    await fillInterfer()
   }
 }
 
@@ -73,7 +87,7 @@ async function addMeme(){
       return
     }
     await addMemeToLib(picPath.value[picIdx.value], editorSummary.value, editorDesc.value, editorTags.value, editorDeleteFile.value)
-    nextPicture()
+    await nextPicture()
   }catch(e){
     ElMessage.error(String(e))
   }
