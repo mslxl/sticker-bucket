@@ -64,7 +64,7 @@ pub struct Meme {
     pub desc: String,
 }
 
-#[derive(Serialize, Deserialize,PartialEq ,PartialOrd)]
+#[derive(Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct Tag {
     pub namespace: String,
     pub value: String,
@@ -103,25 +103,30 @@ pub async fn add_meme(
     Ok(true)
 }
 
-
 /// 更新数据库，只有当字段不为 None 时才进行更新。如果为 None 则不做操作
 #[tauri::command]
-pub async fn update_meme(id: i64, extra_data: Option<String>, summary: Option<String>, desc: Option<String>, tags: Option<Vec<Tag>>) -> Result<bool, Error>{
+pub async fn update_meme(
+    id: i64,
+    extra_data: Option<String>,
+    summary: Option<String>,
+    desc: Option<String>,
+    tags: Option<Vec<Tag>>,
+) -> Result<bool, Error> {
     let mut binding = DATABASE.lock().await;
     let transaction = binding.transaction().unwrap();
     db::update_meme(&transaction, id, extra_data, summary, desc, None)?;
     if let Some(mut tags) = tags {
         let old_tags = db::query_all_meme_tag(&transaction, id)?;
-        for t in old_tags.iter(){
+        for t in old_tags.iter() {
             if !tags.contains(t) {
                 let tag_id = db::query_tag_id(&transaction, &t.namespace, &t.value)?.unwrap(); // 数据库中的约束保证此处一定存在 tag_id
-                db::unlink_tag_meme(&transaction, tag_id ,id , true)?;
-            }else{
+                db::unlink_tag_meme(&transaction, tag_id, id, true)?;
+            } else {
                 tags.swap_remove(tags.iter().position(|v| v == t).unwrap());
             }
         }
 
-        for t in tags{
+        for t in tags {
             let tag_id = db::query_or_insert_tag(&transaction, &t.namespace, &t.value)?;
             db::link_tag_meme(&transaction, tag_id, id)?;
         }
@@ -163,6 +168,13 @@ pub async fn query_tag_value_with_prefix(
 ) -> Result<Vec<String>, Error> {
     let binding = DATABASE.lock().await;
     let res = db::query_tag_value_with_prefix(&binding, namespace, prefix)?;
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn query_tag_namespace_by_value_fuzzy(value: &str) -> Result<Vec<Tag>, Error> {
+    let binding = DATABASE.lock().await;
+    let res = db::query_tag_value_fuzzy(&binding, value)?;
     Ok(res)
 }
 

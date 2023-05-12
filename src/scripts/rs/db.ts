@@ -61,6 +61,10 @@ export async function queryNamespaceWithPrefix(prefix: string): Promise<string[]
   return invoke('query_namespace_with_prefix', { prefix })
 }
 
+export async function queryTagNamespaceWithValueFuzzy(value: string): Promise<Tag[]> {
+  return invoke('query_tag_namespace_by_value_fuzzy', {value});
+}
+
 export async function getMemeByID(id: number): Promise<Meme> {
   return invoke('query_meme_by_id', {id})
 }

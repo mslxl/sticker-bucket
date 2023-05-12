@@ -228,6 +228,21 @@ pub fn query_tag_namespace_with_prefix(
     }
     Ok(namespace)
 }
+pub fn query_tag_value_fuzzy(conn: &Connection, kwd: &str) -> Result<Vec<Tag>, Error>{
+    let mut stmt = 
+        conn.prepare("SELECT namespace, value FROM tag WHERE value LIKE ?1")
+        .unwrap();
+    let iter = stmt.query_map([format!("{}%", kwd)], |row| Ok(Tag{
+        namespace: row.get("namespace").unwrap(),
+        value: row.get("value").unwrap()
+    })).unwrap();
+
+    let mut tags = Vec::new();
+    for tag in iter{
+        tags.push(tag?);
+    }
+    Ok(tags)
+}
 
 pub fn query_tag_value_with_prefix(
     conn: &Connection,
