@@ -23,9 +23,11 @@ const props = withDefaults(defineProps<{
   summary: string,
   description: string
   tags: Tag[],
-  allowLock?: boolean
+  allowLock?: boolean,
+  noDelete?: boolean
 }>(), {
-  allowLock: false
+  allowLock: false,
+  noDelete: false
 })
 
 const emits = defineEmits<{
@@ -126,21 +128,24 @@ defineExpose({
 </script>
 <template lang="pug">
 .editor
-  div
-  el-checkbox(
-    label="Delete image file"
-    :model-value="deleteFile"
-    @update:model-value="value => emits('update:deleteFile', Boolean(value))"
-  )
+  template(v-if="!noDelete")
+    div
+    el-checkbox(
+      label="Delete image file"
+      :model-value="deleteFile"
+      @update:model-value="value => emits('update:deleteFile', Boolean(value))"
+    )
 
   span Summary
   el-input(
     :model-value="summary"
+    clearable
     @update:model-value="value => emits('update:summary', value)")
 
   span Description
   el-input(
     :model-value="description"
+    clearable
     @update:model-value="value=> emits('update:description', value)")
 
   span Tag

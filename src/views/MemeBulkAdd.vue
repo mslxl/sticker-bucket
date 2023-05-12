@@ -9,7 +9,7 @@ import { convertFileSrc } from '@tauri-apps/api/tauri'
 
 import { ElLoading, ElCard, ElImage } from 'element-plus'
 import { ElContainer, ElHeader, ElMain } from 'element-plus'
-import { ElProgress, ElButton, ElButtonGroup} from 'element-plus'
+import { ElProgress, ElButton, ElButtonGroup } from 'element-plus'
 import { ElResult, ElMessage } from 'element-plus'
 
 import { openPicturesList, interferImage } from '../scripts/rs/local'
@@ -23,10 +23,10 @@ const picPath = ref<string[]>([])
 const picIdx = ref(-1)
 const router = useRouter()
 
-const basename = computed(()=>{
-  if(picIdx.value == -1){
+const basename = computed(() => {
+  if (picIdx.value == -1) {
     return ""
-  }else{
+  } else {
     let filename = picPath.value[picIdx.value]
     let regex = /.*(?:\/|\\)(.*?)$/
     let matches = regex.exec(filename)!
@@ -56,39 +56,48 @@ const editor = ref<InstanceType<typeof MemeBasicInfoEditor>>()
 const editorDeleteFile = ref(true)
 const editorSummary = ref('')
 const editorDesc = ref('')
-const editorTags = ref<{namespace: string, value: string, lock?: boolean}[]>([])
+const editorTags = ref<{ namespace: string, value: string, lock?: boolean }[]>([])
 
-async function fillInterfer(){
-  if(picIdx.value < 0) return;
+async function fillInterfer() {
+  if (picIdx.value < 0) return;
   let result = await interferImage(picPath.value[picIdx.value])
   console.log(result)
-  if(result) {
+  if (result) {
     editorSummary.value = result.summary || ""
     editorDesc.value = result.desc || ""
     editorTags.value.push(...result.tags)
   }
 }
 
-async function nextPicture(){
-  if(picIdx.value != picPath.value.length){
+async function nextPicture() {
+  if (picIdx.value != picPath.value.length) {
     editor.value?.clear()
     picIdx.value = picIdx.value + 1
-    await fillInterfer()
+
+    let loadingInstance = ElLoading.service({
+      fullscreen: true
+    });
+    loadingInstance.setText('Recongnize text...')
+    try {
+      await fillInterfer()
+    } finally {
+      loadingInstance.close()
+    }
   }
 }
 
-async function addMeme(){
-  if(picIdx.value == picPath.value.length){
+async function addMeme() {
+  if (picIdx.value == picPath.value.length) {
     return
   }
-  try{
-    if(editorSummary.value.trim().length == 0) {
+  try {
+    if (editorSummary.value.trim().length == 0) {
       ElMessage.error('Summary can not be empty')
       return
     }
     await addMemeToLib(picPath.value[picIdx.value], editorSummary.value, editorDesc.value, editorTags.value, editorDeleteFile.value)
     await nextPicture()
-  }catch(e){
+  } catch (e) {
     ElMessage.error(String(e))
   }
 }
@@ -140,11 +149,12 @@ el-container.viewport(v-if="picIdx != -1 && picIdx != picPath.length")
 </template>
 
 <style scoped lang="scss">
-.viewport{
+.viewport {
   width: 100%;
   height: 100%;
 }
-.bulk-main{
+
+.bulk-main {
   display: grid;
   height: 100%;
 
@@ -152,11 +162,12 @@ el-container.viewport(v-if="picIdx != -1 && picIdx != picPath.length")
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: auto 1fr;
 
-  .bulk-progress{
+  .bulk-progress {
     grid-row: 1;
     grid-column: 1 / 3;
   }
-  .bulk-image-card{
+
+  .bulk-image-card {
     grid-row: 2;
     grid-column: 1;
 
@@ -164,22 +175,22 @@ el-container.viewport(v-if="picIdx != -1 && picIdx != picPath.length")
       width: 100%;
       height: 100%;
     }
-    .bulk-image{
+
+    .bulk-image {
       width: 100%;
       height: 100%;
     }
   }
-  .bulk-editor{
+
+  .bulk-editor {
     grid-row: 2;
     grid-column: 2;
     display: flex;
     justify-content: center;
     align-items: center;
 
-    > * {
+    >* {
       flex-grow: 1;
     }
   }
-}
-
-</style>
+}</style>

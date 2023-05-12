@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { library } from '@fortawesome/fontawesome-svg-core'
-import { faAdd, faPen, faX, faEllipsisV } from '@fortawesome/free-solid-svg-icons'
+import { faAdd, faPen, faX, faEllipsisV} from '@fortawesome/free-solid-svg-icons'
+import { faStar, faPaperPlane} from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 
@@ -14,6 +15,7 @@ import { reactive, ref } from 'vue'
 import { getMemeByPage } from '../scripts/rs/db'
 
 library.add(faAdd, faPen, faX, faEllipsisV)
+library.add(faStar, faPaperPlane)
 
 interface Meme {
   id: number,
@@ -46,10 +48,6 @@ function loadNextPage() {
   })
 }
 
-// onMounted(async () => {
-//   await updateSearchStmt()
-// })
-
 </script>
 <template lang="pug">
 .main
@@ -81,12 +79,23 @@ function loadNextPage() {
         :summary="item.summary" 
         :image-id="item.content" 
         :key="item.id" 
-        @click="$router.push({name: 'meme.view', params: {id: item.id}})")
+        @meme-click="$router.push({name: 'meme.view', params: {id: item.id}})")
+        div(style="width: 100%; display: flex; justify-content: right;")
+          el-button-group.meme-btn-bar
+            el-button(type="" size="large" text)
+              font-awesome-icon(icon="fa-solid fa-paper-plane")
+            el-button(type="" size="large" text @click="$router.push({name: 'meme.info_edit', params: {id : item.id}})") 
+              font-awesome-icon(icon="fa-solid fa-pen")
+            el-button(type="" size="large" text) 
+              font-awesome-icon(icon="fa-solid fa-star")
 
 </template>
 
 
 <style scoped lang="scss">
+.meme-btn-bar{
+  padding: 12px;
+}
 .main {
   height: 100%;
   width: 100%;

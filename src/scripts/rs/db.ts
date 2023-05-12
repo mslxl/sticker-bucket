@@ -20,7 +20,12 @@ export interface Meme{
   desc: string
 }
 
-export async function addMemeToLib(file:string, summary: string, desc: string, tags: {namespace: string, value:string}[], removeAfterAdd: boolean, extraData?: string){
+export interface Tag{
+  namespace: string,
+  value: string
+}
+
+export async function addMemeToLib(file:string, summary: string, desc: string, tags: Tag[], removeAfterAdd: boolean, extraData?: string){
   await invoke('add_meme', {
     file: file,
     summary: summary,
@@ -31,12 +36,21 @@ export async function addMemeToLib(file:string, summary: string, desc: string, t
   })
 }
 
+export async function updateMeme(id: number, summary?: string, desc?: string, tags?: Tag[]):Promise<void>{
+  await invoke('update_meme', {
+    id,
+    summary,
+    desc,
+    tags
+  })
+}
+
 export async function getMemeByPage(search_stmt: string, page: number) : Promise<Meme[]>{
   return invoke('search_memes_by_text', {stmt: search_stmt, page })
 }
 
-export async function getImageRealPath(imageId: string) : Promise<string>{
-  return invoke('get_image_real_path', { imageId })
+export async function getImageRealPath(basename : string) : Promise<string>{
+  return invoke('get_image_real_path', { basename })
 }
 
 export async function queryTagValueWithPrefix(namespace: string, prefix: string): Promise<string[]> {
