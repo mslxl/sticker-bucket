@@ -7,6 +7,8 @@ CREATE TABLE meme(
     summary    TEXT NOT NULL,
     desc       TEXT,
     thumbnail  TEXT,
+    fav        INTEGER NOT NULL DEFAULT 0,
+    trash      INTEGER NOT NULL DEFAULT 0,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT meme_pk2

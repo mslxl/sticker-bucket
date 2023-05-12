@@ -4,6 +4,7 @@ use std::{
 };
 
 use rusqlite::{Connection, OptionalExtension};
+use serde::{de::Visitor, Deserialize, Serialize};
 use sha256::try_digest;
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
     search::build_search_sql,
 };
 
-static DATABASE_VERSION: u32 = 0;
+static DATABASE_VERSION: u32 = 1;
 
 /// Create database if not exists
 /// Update database if table version < [DATABASE_VERSION]
@@ -30,7 +31,11 @@ pub fn handle_version(conn: &mut Connection) -> Result<(), Error> {
     if let Some(version) = version {
         // old database
         if version < DATABASE_VERSION {
-            // upgrade
+            // upgrade version 0 -> 1
+            if version < 1 {
+                println!("Upgrade database to version 1");
+                transaction.execute_batch(include_str!("upgrade_0_1.sql"))?;
+            }
         }
     } else {
         // new database
@@ -118,7 +123,10 @@ pub fn insert_meme(
 }
 
 pub fn update_meme_edit_time(conn: &Connection, id: i64) -> Result<(), Error> {
-    conn.execute("UPDATE meme SET update_time = CURRENT_TIMESTAMP WHERE id = ?1", [id])?;
+    conn.execute(
+        "UPDATE meme SET update_time = CURRENT_TIMESTAMP WHERE id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -153,7 +161,7 @@ pub fn update_meme(
 
 pub fn query_meme_by_id(conn: &Connection, id: i64) -> Result<Meme, Error> {
     let result = conn.query_row(
-        "SELECT id, content, extra_data, summary, desc FROM meme WHERE id = ?1",
+        "SELECT id, content, extra_data, summary, desc, fav, trash FROM meme WHERE id = ?1",
         [id],
         |row| {
             Ok(Meme {
@@ -162,16 +170,88 @@ pub fn query_meme_by_id(conn: &Connection, id: i64) -> Result<Meme, Error> {
                 extra_data: row.get(2).ok(),
                 summary: row.get(3).unwrap(),
                 desc: row.get(4).unwrap(),
+                fav: row.get(5).unwrap(),
+                trash: row.get(6).unwrap(),
             })
         },
     )?;
     Ok(result)
 }
 
-pub fn search_meme_by_stmt(conn: &Connection, stmt: &str, page: i32) -> Result<Vec<Meme>, Error> {
+pub fn update_fav_meme_by_id(conn: &Connection, id: i64, value: bool) -> Result<(), Error>{
+    conn.execute("UPDATE meme SET fav = ?2 WHERE id = ?1", (id, value))?;
+    Ok(())
+}
+
+pub enum SearchMode {
+    OnlyFav,
+    OnlyTrash,
+    Normal,
+}
+
+impl SearchMode {
+    fn where_stmt(&self) -> &'static str {
+        match self {
+            SearchMode::OnlyTrash => "trash = 1",
+            SearchMode::OnlyFav => "fav = 1 AND trash != 1",
+            SearchMode::Normal => "trash != 1",
+        }
+    }
+}
+
+impl Serialize for SearchMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            SearchMode::OnlyFav => serializer.serialize_str("OnlyFav"),
+            SearchMode::OnlyTrash => serializer.serialize_str("OnlyTrash"),
+            SearchMode::Normal => serializer.serialize_str("Normal"),
+        }
+    }
+}
+
+struct SearchModeVisitor;
+impl<'de> Visitor<'de> for SearchModeVisitor {
+    type Value = SearchMode;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("must be a string OnlyFav, OnlyTrash or Normal")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match v {
+            "OnlyFav" => Ok(SearchMode::OnlyFav),
+            "OnlyTrash" => Ok(SearchMode::OnlyTrash),
+            "Normal" => Ok(SearchMode::Normal),
+            _ => Err(E::custom("must be a string OnlyFav, OnlyTrash or Normal"))
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SearchMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(SearchModeVisitor)
+    }
+}
+
+pub fn search_meme_by_stmt(
+    conn: &Connection,
+    stmt: &str,
+    page: i32,
+    mode: SearchMode,
+) -> Result<Vec<Meme>, Error> {
     let mut stmt = build_search_sql(stmt)?;
     stmt.push_str(&format!(
-        "ORDER BY update_time DESC LIMIT 30 OFFSET {};",
+        "{} ORDER BY update_time DESC LIMIT 30 OFFSET {};",
+        mode.where_stmt(),
         page * 30
     ));
     let mut stmt = conn.prepare(&stmt).unwrap();
@@ -182,6 +262,8 @@ pub fn search_meme_by_stmt(conn: &Connection, stmt: &str, page: i32) -> Result<V
             extra_data: row.get("extra_data").ok(),
             summary: row.get("summary").unwrap(),
             desc: row.get("desc").unwrap(),
+            fav: row.get("fav").unwrap(),
+            trash: row.get("trash").unwrap(),
         })
     })?;
     let mut memes = Vec::new();
@@ -209,7 +291,6 @@ pub fn query_all_meme_tag(conn: &Connection, id: i64) -> Result<Vec<Tag>, Error>
     Ok(tags)
 }
 
-
 pub fn query_tag_namespace_with_prefix(
     conn: &Connection,
     prefix: &str,
@@ -228,17 +309,21 @@ pub fn query_tag_namespace_with_prefix(
     }
     Ok(namespace)
 }
-pub fn query_tag_value_fuzzy(conn: &Connection, kwd: &str) -> Result<Vec<Tag>, Error>{
-    let mut stmt = 
-        conn.prepare("SELECT namespace, value FROM tag WHERE value LIKE ?1")
+pub fn query_tag_value_fuzzy(conn: &Connection, kwd: &str) -> Result<Vec<Tag>, Error> {
+    let mut stmt = conn
+        .prepare("SELECT namespace, value FROM tag WHERE value LIKE ?1")
         .unwrap();
-    let iter = stmt.query_map([format!("{}%", kwd)], |row| Ok(Tag{
-        namespace: row.get("namespace").unwrap(),
-        value: row.get("value").unwrap()
-    })).unwrap();
+    let iter = stmt
+        .query_map([format!("{}%", kwd)], |row| {
+            Ok(Tag {
+                namespace: row.get("namespace").unwrap(),
+                value: row.get("value").unwrap(),
+            })
+        })
+        .unwrap();
 
     let mut tags = Vec::new();
-    for tag in iter{
+    for tag in iter {
         tags.push(tag?);
     }
     Ok(tags)

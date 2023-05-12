@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { library } from '@fortawesome/fontawesome-svg-core'
-import { faAdd, faPen, faX, faEllipsisV} from '@fortawesome/free-solid-svg-icons'
-import { faStar, faPaperPlane} from '@fortawesome/free-solid-svg-icons'
+import { faAdd, faPen, faX, faEllipsisV } from '@fortawesome/free-solid-svg-icons'
+import { faStar, faPaperPlane } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 
@@ -12,20 +12,27 @@ import MTitleBar from '../components/basic/TitleBar.vue'
 
 import MMemeView from '../components/MemeView.vue'
 import { reactive, ref } from 'vue'
-import { getMemeByPage } from '../scripts/rs/db'
+import { getMemeByPage, updateFavById } from '../scripts/rs/db'
+import { useRoute } from 'vue-router'
 
 library.add(faAdd, faPen, faX, faEllipsisV)
 library.add(faStar, faPaperPlane)
+
+const route = useRoute()
+
+const onlyFav = route.name == 'fav'
 
 interface Meme {
   id: number,
   content: string,
   extraData: string,
   summary: string,
-  desc: string
+  desc: string,
+  fav: boolean,
+  trash: boolean
 }
 
-const memes = reactive<Meme[]>([])
+const memes = ref<Meme[]>([])
 const memeListDiv = ref<HTMLDivElement>()
 const searchStatement = ref('')
 
@@ -33,19 +40,24 @@ let currentPage = 0
 
 async function updateSearchStmt() {
   currentPage = 0
-  memes.splice(0, memes.length)
+  memes.value.splice(0, memes.value.length)
   loadNextPage()
 }
 
 function loadNextPage() {
-  getMemeByPage(searchStatement.value, currentPage).then(data => {
+  getMemeByPage(searchStatement.value, currentPage, onlyFav ? "OnlyFav" : "Normal").then(data => {
     if (data.length > 0) {
       currentPage++;
-      memes.push(...data)
+      memes.value.push(...data)
     }
   }).catch(e => {
     console.error(e)
   })
+}
+
+function toggleFav(index: number){
+  memes.value[index].fav = !memes.value[index].fav
+  updateFavById(memes.value[index].id, memes.value[index].fav)
 }
 
 </script>
@@ -58,7 +70,7 @@ function loadNextPage() {
         placeholder="Search" 
         v-model="searchStatement" 
         @input="updateSearchStmt")
-    template(#default)
+    template(#default v-if="!onlyFav")
       el-dropdown(
         type=""
         split-button
@@ -74,7 +86,7 @@ function loadNextPage() {
         text)
         font-awesome-icon(icon="fa-solid fa-ellipsis-vertical")
   ul.meme-list(ref="memeListDiv" v-infinite-scroll="loadNextPage" :infinite-scroll-distance="60")
-    li(v-for="item in memes")
+    li(v-for="(item, index) in memes")
       m-meme-view.meme-item(
         :summary="item.summary" 
         :image-id="item.content" 
@@ -86,16 +98,20 @@ function loadNextPage() {
               font-awesome-icon(icon="fa-solid fa-paper-plane")
             el-button(type="" size="large" text @click="$router.push({name: 'meme.info_edit', params: {id : item.id}})") 
               font-awesome-icon(icon="fa-solid fa-pen")
-            el-button(type="" size="large" text) 
-              font-awesome-icon(icon="fa-solid fa-star")
+            el-button(type="" size="large" @click="toggleFav(index)" text) 
+              font-awesome-icon(icon="fa-solid fa-star" :class="{star: item.fav}")
 
 </template>
 
 
 <style scoped lang="scss">
-.meme-btn-bar{
+.star{
+  color: orange;
+}
+.meme-btn-bar {
   padding: 12px;
 }
+
 .main {
   height: 100%;
   width: 100%;

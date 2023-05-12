@@ -128,16 +128,19 @@ pub fn build_search_sql(search_stmt: &str) -> Result<String, SearchError> {
     let where_stmt = if kwd_where.is_empty() {
         "".to_owned()
     } else {
-        let mut wd = String::from("WHERE ");
+        let mut wd = String::new();
+        wd.push_str("(");
         wd.push_str(
     &kwd_where.into_iter().reduce(|acc, pre| 
                 format!("{} OR {}", acc, pre)
             ).unwrap()
         );
+        wd.push_str(")");
+        wd.push_str(" AND ");
         wd
     };
 
-    let result = format!("SELECT * FROM {} {}", from_table, where_stmt);
+    let result = format!("SELECT * FROM {} WHERE {}", from_table, where_stmt);
 
 
 

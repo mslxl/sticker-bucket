@@ -39,6 +39,7 @@ fn main() {
             handler::database::get_data_dir,
             handler::database::get_image_real_path,
             handler::database::search_memes_by_text,
+            handler::database::update_fav_meme_by_id,
             handler::local::open_image_and_interfere,
             handler::local::open_picture_list,
             handler::local::interfere_image,
