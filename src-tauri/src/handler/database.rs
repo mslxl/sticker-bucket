@@ -6,7 +6,7 @@ use std::fs;
 use std::{borrow::Cow, path::PathBuf};
 use tokio::sync::Mutex;
 
-use crate::db;
+use crate::db::{self, SearchMode};
 use crate::error::Error;
 
 pub static DATABASE_DIR: Lazy<PathBuf> = Lazy::new(|| {
@@ -62,6 +62,8 @@ pub struct Meme {
     pub extra_data: Option<String>,
     pub summary: String,
     pub desc: String,
+    pub fav: bool,
+    pub trash: bool
 }
 
 #[derive(Serialize, Deserialize, PartialEq, PartialOrd)]
@@ -138,9 +140,9 @@ pub async fn update_meme(
 }
 
 #[tauri::command]
-pub async fn search_memes_by_text(stmt: &str, page: i32) -> Result<Vec<Meme>, Error> {
+pub async fn search_memes_by_text(stmt: &str,mode: SearchMode, page: i32) -> Result<Vec<Meme>, Error> {
     let binding = DATABASE.lock().await;
-    Ok(db::search_meme_by_stmt(&binding, stmt, page)?)
+    Ok(db::search_meme_by_stmt(&binding, stmt, page, mode)?)
 }
 
 #[tauri::command]
@@ -188,4 +190,10 @@ pub async fn query_count_memes() -> Result<i64, Error> {
 pub async fn query_count_tags() -> Result<i64, Error> {
     let binding = DATABASE.lock().await;
     db::query_count_tags(&binding)
+}
+
+#[tauri::command]
+pub async fn update_fav_meme_by_id(id: i64, value: bool) -> Result<(), Error>{
+    let binding = DATABASE.lock().await;
+    db::update_fav_meme_by_id(&binding, id, value)
 }

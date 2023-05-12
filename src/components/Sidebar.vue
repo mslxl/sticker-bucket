@@ -25,7 +25,7 @@ const isExpand = ref(false)
         font-awesome-icon.icon(icon="fa-solid fa-inbox")
         span(v-show="isExpand") All
     li
-      m-button.menu-btn(justify="left") 
+      m-button.menu-btn(@click="$router.replace({name: 'fav'})" justify="left") 
         font-awesome-icon.icon(icon="fa-solid fa-heart")
         span(v-show="isExpand") Fav
     li 
@@ -60,7 +60,7 @@ const isExpand = ref(false)
     width: 100%;
   }
 
-  .space{
+  .space {
     flex-grow: 1;
   }
 }
@@ -76,6 +76,7 @@ const isExpand = ref(false)
 .sidebar-list {
   display: block;
   list-style: none;
+
   li {
     text-decoration: none;
     padding: 2px 4px 2px 2px;
