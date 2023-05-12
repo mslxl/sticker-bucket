@@ -31,6 +31,7 @@ fn main() {
             handler::database::query_tag_by_meme_id,
             handler::database::query_namespace_with_prefix,
             handler::database::query_tag_value_with_prefix,
+            handler::database::query_tag_namespace_by_value_fuzzy,
             handler::database::query_count_memes,
             handler::database::query_count_tags,
             handler::database::get_table_version,

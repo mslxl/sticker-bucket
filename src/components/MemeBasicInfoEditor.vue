@@ -5,7 +5,7 @@ import { faTurnDown, faLock } from '@fortawesome/free-solid-svg-icons'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 
 import { computed, watch, ref } from 'vue'
-import { queryNamespaceWithPrefix, queryTagValueWithPrefix } from '../scripts/rs/db'
+import { queryNamespaceWithPrefix, queryTagNamespaceWithValueFuzzy, queryTagValueWithPrefix } from '../scripts/rs/db'
 
 import { ElCheckbox, ElInput, ElButton, ElAutocomplete } from 'element-plus'
 import { ElTag, ElSpace } from 'element-plus'
@@ -75,11 +75,24 @@ function fetchTagComplate(queryString: string, callback: (arg: any) => void) {
   if (coloIdx != -1) {
     let namespace = queryString.substring(0, coloIdx)
     queryTagValueWithPrefix(namespace, queryString.substring(coloIdx + 1)).then((value) => {
-      callback(value.sort().map(v => { return { value: `${namespace}:${v}`, display: v, type: 'Value' } }))
+      let result = value.sort().map(v => { return { value: `${namespace}:${v}`, display: v, type: 'Value' } })
+      callback(result)
     })
   } else {
     queryNamespaceWithPrefix(queryString).then((value) => {
-      callback(value.sort().map(v => { return { value: `${v}:`, display: v, type: 'Namespace' } }))
+      let nsp = value.sort().map(v => { return { value: `${v}:`, display: v, type: 'Namespace' } })
+      if (queryString.trim().length == 0 || nsp.length == 1) {
+        callback(nsp)
+      } else {
+        queryTagNamespaceWithValueFuzzy(queryString).then((value) => {
+          let full = value.sort().map(v => {
+            let content = `${v.namespace}:${v.value}`
+            return { value: content, display: content, type: 'Tag' }
+          })
+          console.log(nsp, full)
+          callback([...nsp, ...full])
+        })
+      }
     })
   }
 }
@@ -209,4 +222,5 @@ defineExpose({
     font-size: smaller;
     font-style: italic;
   }
-}</style>
+}
+</style>
