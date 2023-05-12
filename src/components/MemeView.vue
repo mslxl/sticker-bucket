@@ -11,6 +11,9 @@ const props = defineProps<{
 }>()
 
 const imageURL = ref('')
+const emits = defineEmits<{
+  (e: 'meme-click'): void
+}>()
 
 getImageRealPath(props.imageId).then((path) => {
   imageURL.value = convertFileSrc(path)
@@ -23,7 +26,8 @@ el-card(:body-style="{ padding: '0px' }")
   el-image.img(
     :src="imageURL"
     loading="lazy"
-    fit="fill")
+    fit="fill"
+    @click="emits('meme-click')")
     template(#placeholder)
       el-skeleton(
         :rows="5"

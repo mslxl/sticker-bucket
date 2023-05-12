@@ -1,5 +1,5 @@
 // // Prevents additional console window on Windows in release, DO NOT REMOVE!!
-// #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
@@ -26,6 +26,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             handler::database::add_meme,
+            handler::database::update_meme,
             handler::database::query_meme_by_id,
             handler::database::query_tag_by_meme_id,
             handler::database::query_namespace_with_prefix,

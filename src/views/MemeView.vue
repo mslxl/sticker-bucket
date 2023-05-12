@@ -49,7 +49,8 @@ onMounted(() => {
 m-titlebar(:title="meme?.summary || 'Loading'" :back="true")
   el-button.btn-item(
     type=""
-    text)
+    text
+    @click="$router.push({name: 'meme.info_edit', params: {id: imageId}}); loadData()")
     font-awesome-icon(icon="fa-solid fa-pen-to-square")
     span Edit
 

@@ -51,8 +51,8 @@ pub fn get_data_dir() -> Cow<'static, str> {
 }
 
 #[tauri::command]
-pub fn get_image_real_path(image_id: &str) -> PathBuf {
-    DATABASE_FILE_DIR.join(image_id)
+pub fn get_image_real_path(basename: &str) -> PathBuf {
+    DATABASE_FILE_DIR.join(basename)
 }
 
 #[derive(Serialize)]
@@ -64,7 +64,7 @@ pub struct Meme {
     pub desc: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize,PartialEq ,PartialOrd)]
 pub struct Tag {
     pub namespace: String,
     pub value: String,
@@ -99,7 +99,36 @@ pub async fn add_meme(
         db::link_tag_meme(&transaction, id, meme_id)?
     }
 
-    transaction.commit().unwrap();
+    transaction.commit()?;
+    Ok(true)
+}
+
+
+/// 更新数据库，只有当字段不为 None 时才进行更新。如果为 None 则不做操作
+#[tauri::command]
+pub async fn update_meme(id: i64, extra_data: Option<String>, summary: Option<String>, desc: Option<String>, tags: Option<Vec<Tag>>) -> Result<bool, Error>{
+    let mut binding = DATABASE.lock().await;
+    let transaction = binding.transaction().unwrap();
+    db::update_meme(&transaction, id, extra_data, summary, desc, None)?;
+    if let Some(mut tags) = tags {
+        let old_tags = db::query_all_meme_tag(&transaction, id)?;
+        for t in old_tags.iter(){
+            if !tags.contains(t) {
+                let tag_id = db::query_tag_id(&transaction, &t.namespace, &t.value)?.unwrap(); // 数据库中的约束保证此处一定存在 tag_id
+                db::unlink_tag_meme(&transaction, tag_id ,id , true)?;
+            }else{
+                tags.swap_remove(tags.iter().position(|v| v == t).unwrap());
+            }
+        }
+
+        for t in tags{
+            let tag_id = db::query_or_insert_tag(&transaction, &t.namespace, &t.value)?;
+            db::link_tag_meme(&transaction, tag_id, id)?;
+        }
+    }
+    db::update_meme_edit_time(&transaction, id)?;
+
+    transaction.commit()?;
     Ok(true)
 }
 
