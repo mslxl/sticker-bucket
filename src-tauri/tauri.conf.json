@@ -1,14 +1,13 @@
 {
   "build": {
-    "beforeDevCommand": "python src-tauri/copy-resource.py && pnpm dev",
-    "beforeBuildCommand": "python src-tauri/copy-resource.py && pnpm build",
-    "beforeBundleCommand": "python src-tauri/copy-resource.py",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
     "devPath": "http://localhost:1420",
     "distDir": "../dist",
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "Meme Management",
+    "productName": "tauri-app",
     "version": "0.0.0"
   },
   "tauri": {
@@ -17,60 +16,31 @@
       "shell": {
         "all": false,
         "open": true
-      },
-      "dialog": {
-        "all": true
-      },
-      "protocol": {
-        "all": true,
-        "asset": true,
-        "assetScope": [
-          "**/*"
-        ]
       }
     },
     "bundle": {
-      "resources": [
-        "./model/",
-        "./*.dll"
-      ],
       "active": true,
+      "targets": "all",
+      "identifier": "com.tauri.dev",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
         "icons/128x128@2x.png",
         "icons/icon.icns",
         "icons/icon.ico"
-      ],
-      "identifier": "com.mslxl.mmm",
-      "targets": "all",
-      "windows": {
-        "webviewInstallMode": {
-          "type": "embedBootstrapper"
-        }
-      }
+      ]
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost"
-    },
-    "updater": {
-      "active": false
+      "csp": null
     },
     "windows": [
       {
-        "label": "main",
         "fullscreen": false,
         "resizable": true,
-        "title": "Meme Management",
-        "minWidth": 360,
-        "minHeight": 400,
+        "title": "tauri-app",
         "width": 800,
         "height": 600
       }
-    ],
-    "systemTray": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    }
+    ]
   }
 }
