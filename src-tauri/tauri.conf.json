@@ -7,8 +7,8 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "tauri-app",
-    "version": "0.0.0"
+    "productName": "mmm",
+    "version": "0.0.1"
   },
   "tauri": {
     "allowlist": {
@@ -16,12 +16,15 @@
       "shell": {
         "all": false,
         "open": true
+      },
+      "window": {
+        "all": true
       }
     },
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.tauri.dev",
+      "identifier": "com.mslxl.mmm",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
@@ -37,7 +40,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "tauri-app",
+        "title": "Meme Management",
         "width": 800,
         "height": 600
       }
