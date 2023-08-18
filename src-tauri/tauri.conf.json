@@ -19,6 +19,20 @@
       },
       "window": {
         "all": true
+      },
+      "dialog": {
+        "ask": false,
+        "confirm": false,
+        "message": false,
+        "open": true,
+        "save": false
+      },
+      "protocol": {
+        "all": true,
+        "asset": true,
+        "assetScope": [
+          "**/*"
+        ]
       }
     },
     "bundle": {
@@ -34,7 +48,7 @@
       ]
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost"
     },
     "windows": [
       {
