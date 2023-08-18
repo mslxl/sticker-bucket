@@ -1,15 +1,33 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+use std::{path::PathBuf, fs};
+
+use db::MemeDatabaseConnection;
+
+mod db;
+
+pub struct AppDir {
+    storage_dir: PathBuf,
 }
 
 fn main() {
+    let storage_dir = tauri::utils::platform::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf()
+        .join("storage");
+    if !storage_dir.exists(){
+        fs::create_dir_all(&storage_dir).unwrap();
+    }
+
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(AppDir {
+            storage_dir: storage_dir.clone(),
+        })
+        .manage(MemeDatabaseConnection::open(storage_dir))
+        .invoke_handler(tauri::generate_handler![])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
