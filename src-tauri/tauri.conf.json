@@ -27,6 +27,9 @@
         "open": true,
         "save": false
       },
+      "path": {
+        "all": true
+      },
       "protocol": {
         "all": true,
         "asset": true,
