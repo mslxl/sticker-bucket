@@ -1,12 +1,34 @@
-import { lazy } from "react"
-import { createBrowserRouter } from "react-router-dom"
+import { lazy } from 'react'
+import { createBrowserRouter } from 'react-router-dom'
 
-const Landing = lazy(() => import("./pages/Landing"))
+const DashboardLayout = lazy(() => import('./pages/dashboard/layout'))
+const DashboardPage = lazy(() => import('./pages/dashboard/page'))
+
+const AddLayout = lazy(() => import('./pages/add/layout'))
+const AddPage = lazy(() => import('./pages/add/page'))
+import addPageLoader from './pages/add/loader'
 
 const routes = createBrowserRouter([
   {
-    path: "/",
-    element: <Landing />
+    path: '/',
+    element: <DashboardLayout />,
+    children: [
+      {
+        path: '/',
+        element: <DashboardPage />
+      }
+    ]
+  },
+  {
+    path: '/add',
+    element: <AddLayout />,
+    children: [
+      {
+        path: '/add/',
+        element: <AddPage />,
+        loader: addPageLoader
+      }
+    ]
   }
 ])
 
