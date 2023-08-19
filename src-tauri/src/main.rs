@@ -6,6 +6,8 @@ use std::{path::PathBuf, fs};
 use db::MemeDatabaseConnection;
 
 mod db;
+mod file;
+mod meme;
 
 pub struct AppDir {
     storage_dir: PathBuf,
@@ -27,7 +29,10 @@ fn main() {
             storage_dir: storage_dir.clone(),
         })
         .manage(MemeDatabaseConnection::open(storage_dir))
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![
+            meme::add_meme_record
+
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

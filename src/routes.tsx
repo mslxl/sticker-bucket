@@ -5,8 +5,9 @@ const DashboardLayout = lazy(() => import('./pages/dashboard/layout'))
 const DashboardPage = lazy(() => import('./pages/dashboard/page'))
 
 const AddLayout = lazy(() => import('./pages/add/layout'))
-const AddPage = lazy(() => import('./pages/add/page'))
-import addPageLoader from './pages/add/loader'
+const AddImagePage = lazy(() => import('./pages/add/image/page'))
+import addImagePageLoader from './pages/add/image/loader'
+const AddTextPage = lazy(()=>import('./pages/add/text/page'))
 
 const routes = createBrowserRouter([
   {
@@ -24,9 +25,13 @@ const routes = createBrowserRouter([
     element: <AddLayout />,
     children: [
       {
-        path: '/add/',
-        element: <AddPage />,
-        loader: addPageLoader
+        path: '/add/image',
+        element: <AddImagePage />,
+        loader: addImagePageLoader
+      },
+      {
+        path: '/add/text',
+        element: <AddTextPage />
       }
     ]
   }

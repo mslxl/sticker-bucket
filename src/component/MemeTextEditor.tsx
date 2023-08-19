@@ -1,25 +1,18 @@
-
-import { Grid } from '@mui/material'
-import { TextField } from '@mui/material'
-import { Box, Fab, Paper } from '@mui/material'
-import { FormGroup, FormControlLabel, Checkbox } from '@mui/material'
+import { Box, Checkbox, Fab, FormControlLabel, FormGroup, Paper, TextField } from '@mui/material'
 import { Done as DoneIcon } from '@mui/icons-material'
-import { Meme, Tag } from '../model/meme'
-import { useRef, useState } from 'react'
 import TagEditor, { TagEditorRef } from './TagEditor'
+import { Meme, Tag } from '../model/meme'
+import { useState, useRef } from 'react'
 
-export interface MemeEditorProp {
-  imageUrl: string
+export interface MemeTextEditorProp {
   defaultValue?: Meme
   confirm?: (meme: Meme) => Promise<void>
   cancel?: () => void
 }
-
-export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEditorProp) {
-
+export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditorProp) {
   const [meme, setMeme] = useState(defaultValue || {
     id: null,
-    ty: 'image',
+    ty: 'text',
     name: '',
     description: '',
     tags: [],
@@ -41,6 +34,13 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
     }))
   }
 
+  function handleMemeTags(tags: Tag[]) {
+    setMeme((state) => ({
+      ...state,
+      tags
+    }))
+  }
+
   function handleMemeFav(fav: boolean) {
     setMeme((state) => ({
       ...state,
@@ -48,50 +48,24 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
     }))
   }
 
-  function updateTags(tags: Tag[]) {
-    setMeme((state) => ({
-      ...state,
-      tags
-    }))
-  }
-
   return (
     <>
-      <Grid
-        container
-        spacing={2}
-        sx={{
-          minHeight: '100%'
-        }}>
-        <Grid item xs={6}>
-          <Box
-            component="img"
-            src={imageUrl}
-            sx={{ width: '100%' }} />
-        </Grid>
-        <Grid item xs={6}>
-        </Grid>
-      </Grid>
-      <Paper sx={{ padding: 2 }}>
+      <Paper>
         <FormGroup>
-          <FormControlLabel control={<Checkbox defaultChecked />} label='Delete file after add' />
           <FormControlLabel control={<Checkbox defaultChecked onChange={e => handleMemeFav(e.target.checked)} />} label='Favourite' />
         </FormGroup>
         <TextField
           fullWidth
           label='Name'
           variant='filled'
-          onChange={(e) => handleMemeName(e.target.value)}
-          defaultValue={meme.name} />
+          onChange={(e) => handleMemeName(e.target.value)} />
         <TextField
           fullWidth
           multiline
-          label='Description'
+          label='Content'
           variant='filled'
-          onChange={(e) => handleMemeDescription(e.target.value)}
-          defaultValue={meme.description} />
-
-        <TagEditor onChange={updateTags} ref={tagEditor} />
+          onChange={(e) => handleMemeDescription(e.target.value)} />
+        <TagEditor ref={tagEditor} onChange={handleMemeTags}/>
       </Paper>
       <Box
         sx={{
@@ -107,7 +81,6 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
           Done
         </Fab>
       </Box>
-
     </>
   )
 }
