@@ -1,10 +1,15 @@
 import { SpeedDial, SpeedDialAction, SpeedDialIcon } from '@mui/material'
-import { Computer as ComputerIcon } from '@mui/icons-material'
+import {
+  Computer as ComputerIcon,
+  TextFields as TextIcon
+} from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
+import { useDocumentTitle } from '../../libs/native/windows'
 
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  useDocumentTitle('Meme Management Dashboard')
   return (
     <>
       <h3>Saluton, la mondon</h3>
@@ -15,8 +20,13 @@ export default function DashboardPage() {
         <SpeedDialAction
           key="local"
           icon={<ComputerIcon />}
-          tooltipTitle="Local Source"
-          onClick={() => navigate('/add')} />
+          tooltipTitle="Local Image Source"
+          onClick={() => navigate('/add/image')} />
+        <SpeedDialAction
+          key="text"
+          icon={<TextIcon />}
+          tooltipTitle="Local Text Source"
+          onClick={() => navigate('/add/text')} />
       </SpeedDial>
     </>
   )

@@ -1,5 +1,5 @@
-import { useEffect } from "react"
-import { window } from "@tauri-apps/api"
+import { useEffect } from 'react'
+import { window } from '@tauri-apps/api'
 
 export function useDocumentTitle(title: string) {
   function updateTitle(name: string) {
@@ -10,7 +10,7 @@ export function useDocumentTitle(title: string) {
   useEffect(() => {
     updateTitle(title)
     return () => {
-      updateTitle("Untitled")
+      updateTitle('Untitled')
     }
   })
 }

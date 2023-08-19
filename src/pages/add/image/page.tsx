@@ -1,10 +1,11 @@
 import { tauri } from '@tauri-apps/api'
 import { useLoaderData } from 'react-router-dom'
-import { useDocumentTitle } from '../../native/windows'
+import { useDocumentTitle } from '../../../libs/native/windows'
 import { Container, LinearProgress } from '@mui/material'
-import MemeEditor from '../../component/MemeEditor'
+import MemeEditor from '../../../component/MemeEditor'
 import { useState } from 'react'
-import { Meme } from '../../model/meme'
+import { Meme } from '../../../model/meme'
+import { useDatabase } from '../../../store/database'
 
 export default function AddPage() {
   const { files } = useLoaderData() as { files: string[] }
@@ -16,9 +17,27 @@ export default function AddPage() {
 
   useDocumentTitle(`Add image (${prog + 1}/${files.length})`)
 
+  if (prog >= files.length) {
+    // TODO: render message when multifile is true
+    history.back()
+  }
+
+  const database = useDatabase()
+
   async function handleMemeAdd(meme: Meme) {
-    console.log(meme)
-    setProg((state) => state + 1)
+    let noError = true
+    try {
+      await database.addMeme({
+        ...meme,
+        pkg_id: 0,
+        content: files[prog]
+      })
+    } catch (e) {
+      noError = false
+    }
+    if (noError) {
+      setProg(p => p + 1)
+    }
   }
 
   return (
@@ -31,5 +50,4 @@ export default function AddPage() {
       </Container>
     </>
   )
-
 }

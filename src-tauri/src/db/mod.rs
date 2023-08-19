@@ -28,7 +28,7 @@ impl MemeDatabaseConnection {
             .ok()
             .unwrap_or(None);
 
-        if let Some(local_version) = version {
+        if let Some(_local_version) = version {
             // upgrade local database
         } else {
             // create database
