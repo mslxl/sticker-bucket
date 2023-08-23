@@ -24,6 +24,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
     description: '',
     tags: [],
     fav: false,
+    content: '',
   } as Meme)
 
   const tagEditor = useRef<TagEditorRef>(null)
@@ -107,7 +108,6 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
           Done
         </Fab>
       </Box>
-
     </>
   )
 }

@@ -11,7 +11,8 @@ export interface Meme {
   id: string | null,
   ty: 'image' | 'text',
   name: string,
-  description: string,
+  description?: string,
+  content: string,
   tags: Tag[],
   fav: boolean,
 }

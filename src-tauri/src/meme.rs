@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, Error, OptionalExtension};
 
-use crate::{db::MemeDatabaseConnection, file::copy_to_storage, AppDir};
+use crate::{
+    db::{self, search::build_search_sql, MemeDatabaseConnection, MemeDatabaseState},
+    file::{compute_path, copy_to_storage, store_to_storage},
+    AppDir,
+};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Tag {
@@ -13,11 +17,24 @@ pub struct Tag {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MemeToAdd {
     name: String,
-    description: String,
+    description: Option<String>,
     ty: String,
-    content: Option<String>,
+    content: String,
     fav: bool,
     tags: Vec<Tag>,
+    pkg_id: i64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct MemeQueried {
+    id: i64,
+    name: String,
+    description: Option<String>,
+    ty: String,
+    hash: String,
+    path: String,
+    fav: bool,
+    trash: bool,
     pkg_id: i64,
 }
 
@@ -52,29 +69,39 @@ fn insert_meme_tag(conn: &Connection, meme_id: i64, tag_id: i64) -> Result<(), S
 
 #[tauri::command]
 pub async fn add_meme_record(
-    db_state: tauri::State<'_, MemeDatabaseConnection>,
-    base_state: tauri::State<'_, AppDir>,
+    db_state: tauri::State<'_, MemeDatabaseState>,
     mut item: MemeToAdd,
 ) -> Result<(), String> {
-    let mut connection = db_state.conn.lock().await;
-    let conn = connection.transaction().map_err(|e| e.to_string())?;
+    // let mut connection = db_state.state.as_ref().unwrap().conn.lock().await;
+    let mut guard = db_state.state.lock().await;
+    let state = &mut guard.as_mut().unwrap();
+
+    let conn = state.conn.transaction().map_err(|e| e.to_string())?;
+
     let tag_id = item
         .tags
         .iter()
         .map(|t| make_tag(&conn, &t.key, &t.value))
         .collect::<Result<Vec<i64>, String>>()?;
 
-    if item.ty == "image" {
-        let new_content = copy_to_storage(
-            &base_state.storage_dir,
-            PathBuf::from(&item.content.unwrap_or(String::from(""))),
-        )
-        .map_err(|e| e.to_string())?;
-        item.content = Some(new_content)
+    match item.ty.as_str() {
+        "image" => {
+            let new_content = copy_to_storage(&state.path, PathBuf::from(&item.content))
+                .map_err(|e| e.to_string())?;
+            item.content = new_content
+        }
+        "text" => {
+            let new_content = store_to_storage(&state.path, item.content.as_bytes(), Some("txt"))
+                .map_err(|e| e.to_string())?;
+            item.content = new_content
+        }
+        _ => {
+            unreachable!()
+        }
     }
 
     conn.execute(
-        "INSERT INTO meme(name, description, ty, content, fav, pkg_id)
+        "INSERT INTO meme(name, description, ty, hash, fav, pkg_id)
       VALUES(?1, ?2, ?3, ?4, ?5, ?6 ) ",
         (
             item.name,
@@ -94,4 +121,42 @@ pub async fn add_meme_record(
 
     conn.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn search_meme(
+    state: tauri::State<'_, MemeDatabaseState>,
+    stmt: String,
+    page: i64,
+) -> Result<Vec<MemeQueried>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+    let mut sql_stmt = build_search_sql(&stmt).map_err(|e| e.to_string())?;
+    sql_stmt.push_str("trash != 1 ");
+    sql_stmt.push_str(&format!(
+        "ORDER BY update_time DESC LIMIT 30 OFFSET {}",
+        30 * page
+    ));
+
+    let mut query = state.conn.prepare(&sql_stmt).unwrap();
+    let result = query
+        .query_map([], |row| {
+            let hash: String = row.get("hash").unwrap();
+            Ok(MemeQueried {
+                id: row.get("id").unwrap(),
+                name: row.get("name").unwrap(),
+                description: row.get("description").ok(),
+                ty: row.get("ty").unwrap(),
+                path: compute_path(&state.path, &hash).to_str().unwrap().to_owned(),
+                hash: hash,
+                fav: row.get("fav").unwrap(),
+                trash: row.get("trash").unwrap(),
+                pkg_id: row.get("pkg_id").unwrap(),
+            })
+        })
+        .unwrap()
+        .collect::<Result<Vec<MemeQueried>, Error>>()
+        .map_err(|e|e.to_string())?;
+
+    Ok(result)
 }

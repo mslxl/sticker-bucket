@@ -5,17 +5,29 @@ import {
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 import { useDocumentTitle } from '../../libs/native/windows'
+import MemeList from '../../component/MemeList'
+import { useDatabase } from '../../store/database'
 
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const memes = useDatabase((state) => state.memes)
+  const hasNext = useDatabase((state) => state.hasNext)
+  const loadNextMemes = useDatabase((state) => state.loadNext)
+
   useDocumentTitle('Meme Management Dashboard')
+
+
   return (
     <>
-      <h3>Saluton, la mondon</h3>
+      <MemeList
+        memes={memes}
+        hasNext={hasNext}
+        loadNextMeme={loadNextMemes} />
+
       <SpeedDial
         ariaLabel='Add Meme'
-        sx={{ position: 'absolute', bottom: 16, right: 16 }}
+        sx={{ position: 'fixed', bottom: 16, right: 16 }}
         icon={<SpeedDialIcon />}>
         <SpeedDialAction
           key="local"
