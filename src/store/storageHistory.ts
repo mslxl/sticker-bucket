@@ -1,6 +1,7 @@
 import * as R from 'ramda'
 import { create } from 'zustand'
 import { combine, createJSONStorage, persist } from 'zustand/middleware'
+import { ZustandNativeStorage } from '../libs/native/zustand'
 
 
 export const useStorageHistory = create(
@@ -20,7 +21,7 @@ export const useStorageHistory = create(
     })),
     {
       name: 'storage-history',
-      storage: createJSONStorage(() => sessionStorage)
+      storage: createJSONStorage(() => new ZustandNativeStorage())
     }
   )
 )
