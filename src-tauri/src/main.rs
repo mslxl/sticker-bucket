@@ -8,6 +8,7 @@ use db::MemeDatabaseState;
 mod db;
 mod file;
 mod meme;
+mod zustand_storage;
 
 pub struct AppDir {
     storage_dir: PathBuf,
@@ -30,6 +31,9 @@ fn main() {
         })
         .manage(MemeDatabaseState::default())
         .invoke_handler(tauri::generate_handler![
+            zustand_storage::zustand_set,
+            zustand_storage::zustand_get,
+            zustand_storage::zustand_del,
             meme::add_meme_record,
             meme::search_meme,
             db::open_storage,
