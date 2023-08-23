@@ -3,9 +3,30 @@ use std::path::PathBuf;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::Mutex;
 
+pub mod search;
 pub struct MemeDatabaseConnection {
     pub path: PathBuf,
-    pub conn: Mutex<Connection>,
+    pub conn: Connection,
+}
+pub struct MemeDatabaseState {
+    pub state: Mutex<Option<MemeDatabaseConnection>>,
+}
+
+impl Default for MemeDatabaseState {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(None),
+        }
+    }
+}
+impl MemeDatabaseState {
+    async fn close(&self) {
+        *self.state.lock().await = None;
+    }
+
+    async fn open(&self, path: PathBuf) {
+        *self.state.lock().await = Some(MemeDatabaseConnection::open(path))
+    }
 }
 
 impl MemeDatabaseConnection {
@@ -34,7 +55,7 @@ impl MemeDatabaseConnection {
             // create database
             conn.execute_batch(&format!(
                 "INSERT OR REPLACE INTO table_version(id, version) VALUES(0, {});",
-                MemeDatabaseConnection::CURRENT_VERSION
+                Self::CURRENT_VERSION
             ))
             .unwrap();
 
@@ -47,10 +68,30 @@ impl MemeDatabaseConnection {
     pub fn open(path: PathBuf) -> Self {
         let mut conn = Connection::open(path.join("meme.db")).unwrap();
 
-        MemeDatabaseConnection::init(&mut conn);
-        Self {
-            path,
-            conn: Mutex::new(conn),
-        }
+        Self::init(&mut conn);
+        Self { path, conn }
     }
+}
+
+#[tauri::command]
+pub async fn is_storage_available(
+    state: tauri::State<'_, MemeDatabaseState>,
+) -> Result<bool, String> {
+    Ok(state.state.lock().await.is_some())
+}
+
+#[tauri::command]
+pub async fn get_storage(state: tauri::State<'_, MemeDatabaseState>) -> Result<String, String> {
+    let guard = state.state.lock().await;
+    let path = guard.as_ref().unwrap().path.to_str().unwrap();
+    Ok(path.to_owned())
+}
+
+#[tauri::command]
+pub async fn open_storage(
+    state: tauri::State<'_, MemeDatabaseState>,
+    path: String,
+) -> Result<(), String> {
+    state.open(PathBuf::from(path)).await;
+    Ok(())
 }

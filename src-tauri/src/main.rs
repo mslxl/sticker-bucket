@@ -3,7 +3,7 @@
 
 use std::{path::PathBuf, fs};
 
-use db::MemeDatabaseConnection;
+use db::MemeDatabaseState;
 
 mod db;
 mod file;
@@ -28,10 +28,13 @@ fn main() {
         .manage(AppDir {
             storage_dir: storage_dir.clone(),
         })
-        .manage(MemeDatabaseConnection::open(storage_dir))
+        .manage(MemeDatabaseState::default())
         .invoke_handler(tauri::generate_handler![
-            meme::add_meme_record
-
+            meme::add_meme_record,
+            meme::search_meme,
+            db::open_storage,
+            db::get_storage,
+            db::is_storage_available
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

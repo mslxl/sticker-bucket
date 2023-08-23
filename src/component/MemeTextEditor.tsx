@@ -14,7 +14,7 @@ export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditor
     id: null,
     ty: 'text',
     name: '',
-    description: '',
+    content: '',
     tags: [],
     fav: false,
   } as Meme)
@@ -27,10 +27,11 @@ export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditor
       name
     }))
   }
-  function handleMemeDescription(desc: string) {
+  function handleMemeContent(content: string) {
     setMeme((state) => ({
       ...state,
-      description: desc
+      content: content,
+      description: content,
     }))
   }
 
@@ -64,7 +65,7 @@ export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditor
           multiline
           label='Content'
           variant='filled'
-          onChange={(e) => handleMemeDescription(e.target.value)} />
+          onChange={(e) => handleMemeContent(e.target.value)} />
         <TagEditor ref={tagEditor} onChange={handleMemeTags}/>
       </Paper>
       <Box

@@ -1,8 +1,9 @@
-import { ReactNode, Suspense, useState } from 'react'
+import { path } from '@tauri-apps/api'
+import { ReactNode, Suspense, useEffect, useState } from 'react'
 import { styled, useTheme, Theme, CSSObject } from '@mui/material/styles'
 
 import Box from '@mui/material/Box'
-import { Drawer as MuiDrawer, alpha } from '@mui/material'
+import { Drawer as MuiDrawer, alpha, capitalize } from '@mui/material'
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
 import { Toolbar, InputBase } from '@mui/material'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -19,6 +20,8 @@ import {
 } from '@mui/icons-material'
 import { Outlet } from 'react-router-dom'
 import LoadingPage from '../loading/page'
+import { getStorage } from '../../libs/native/db'
+import { useDatabase } from '../../store/database'
 
 const drawerWidth = 240
 
@@ -170,6 +173,7 @@ function DrawerItemButton({ title, open, children, onClick }: DrawerItemButtonPr
 export default function DashboardLayout() {
   const theme = useTheme()
   const [open, setOpen] = useState(false)
+  const setSearchStatment = useDatabase((state) => state.setSearchStatment)
 
   const handleDrawerOpen = () => {
     setOpen(true)
@@ -177,6 +181,13 @@ export default function DashboardLayout() {
   const handleDrawerClose = () => {
     setOpen(false)
   }
+
+  const [windowTitle, setWindowTitle] = useState('Meme Management')
+  useEffect(() => {
+    getStorage().then(storage => {
+      setWindowTitle(capitalize(storage.substring(storage.lastIndexOf(path.sep) + 1)))
+    })
+  })
 
   return (
     <Box sx={{ display: 'flex' }}>
@@ -200,7 +211,7 @@ export default function DashboardLayout() {
             noWrap
             component='div'
             sx={{ flexGrow: '1' }}>
-            Meme Management
+            {windowTitle}
           </Typography>
 
           <Search>
@@ -210,6 +221,7 @@ export default function DashboardLayout() {
             <StyledInputBase
               placeholder='Search…'
               inputProps={{ 'aria-label': 'search' }}
+              onChange={(e) => setSearchStatment(e.target.value)}
             />
           </Search>
 

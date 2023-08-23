@@ -13,17 +13,19 @@ CREATE TABLE IF NOT EXISTS tag(
   value TEXT NOT NULL
 );
 
+
 CREATE TABLE IF NOT EXISTS meme(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL,
-  ty TEXT NOT NULL,
-  content TEXT,
+  name TEXT NOT NULL, /* 名字 */
+  description TEXT, /* 对表情的细节描述 */
+  ty TEXT NOT NULL, /* 类型，目前取值 image 或 text */
+  hash TEXT NOT NULL, /* 内容 hash */
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   fav INTEGER NOT NULL DEFAULT 0,
   trash INTEGER NOT NULL DEFAULT 0,
   pkg_id INTEGER NOT NULL DEFAULT 0,
+  parent INTEGER,
   CONSTRAINT pkg_fk 
     FOREIGN KEY (pkg_id)
     REFERENCES package(id)

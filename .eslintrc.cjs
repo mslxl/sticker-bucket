@@ -47,6 +47,7 @@ module.exports = {
     'semi': [
       'error',
       'never'
-    ]
+    ],
+    'react/no-unknown-property': ['error', { 'ignore': ['css'] }]
   }
 }

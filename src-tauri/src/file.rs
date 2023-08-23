@@ -36,3 +36,28 @@ pub fn copy_to_storage<P: AsRef<Path>, S: AsRef<Path>>(
         Ok(hash)
     }
 }
+
+pub fn store_to_storage<P: AsRef<Path>>(
+    base: P,
+    content: &[u8],
+    ext: Option<&str>,
+) -> Result<String, std::io::Error> {
+    let hash = sha256::digest(content);
+    let mut path = compute_path(base, &hash);
+    if let Some(ext) = ext {
+        path.set_extension(ext);
+    }
+
+    let path_parent = path.parent().unwrap();
+    if !path_parent.exists() {
+        fs::create_dir_all(path_parent)?;
+    }
+
+    fs::write(path, content)?;
+
+    if let Some(ext) = &ext {
+        Ok(format!("{}.{}", hash, ext))
+    } else {
+        Ok(hash)
+    }
+}
