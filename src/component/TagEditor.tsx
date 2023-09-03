@@ -1,8 +1,9 @@
 import * as R from 'ramda'
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Tag, collectTag } from '../model/meme'
-import { Box, TextField, IconButton, Grid, Stack, Paper, Chip, Snackbar, Alert } from '@mui/material'
-import { KeyboardReturn as ReturnIcon, Lock as LockIcon } from '@mui/icons-material'
+import { Box, TextField, IconButton, Grid, Stack, Paper,  Snackbar, Alert } from '@mui/material'
+import { KeyboardReturn as ReturnIcon } from '@mui/icons-material'
+import TagShowcase from './TagShowcase'
 
 export interface TagEditorProp {
   defaultValue?: Tag[]
@@ -80,26 +81,12 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     remove: deleteTag,
   }))
 
-  const tagChipsStack = (
-    tagM.map(namespace =>
-      <Stack key={namespace.key} spacing={1} direction="row">
-        <Chip label={namespace.key} variant='outlined' />
-        {
-          namespace.value.map((value) => ({
-            lock: R.includes({ key: namespace.key, value }, lockTag),
-            tag: { key: namespace.key, value },
-          })).map(({ lock, tag }) =>
-            <Chip
-              key={tag.value}
-              label={tag.value}
-              avatar={lock ? <LockIcon /> : undefined}
-              clickable
-              onClick={() => handleToggleTagLock(tag.key, tag.value)}
-              onDelete={lock ? undefined : (() => deleteTag(tag.key, tag.value))} />
-          )
-        }
-      </Stack>
-    )
+  const tagShowcase = (<TagShowcase
+    tags={tagM}
+    lockTag={lockTag}
+    lockable
+    handleLock={handleToggleTagLock}
+    handleDelete={deleteTag} />
   )
 
   return (
@@ -124,7 +111,7 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
               sx={{ padding: '6px' }}>
               <Stack spacing={2}>
                 {
-                  tagChipsStack
+                  tagShowcase
                 }
               </Stack>
             </Paper>
