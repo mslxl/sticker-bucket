@@ -217,3 +217,76 @@ pub async fn get_tags_by_id(
 
     Ok(result)
 }
+
+#[tauri::command]
+pub async fn get_tag_keys_by_prefix(
+    state: tauri::State<'_, MemeDatabaseState>,
+    prefix: String,
+) -> Result<Vec<String>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+
+    let mut query = state
+        .conn
+        .prepare("SELECT DISTINCT(key) FROM tag WHERE key LIKE ?1")
+        .unwrap();
+    let keys = query
+        .query_map([format!("{}%",prefix)], |r| Ok(r.get(0).unwrap()))
+        .unwrap()
+        .collect::<Result<Vec<String>, Error>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(keys)
+}
+
+#[tauri::command]
+pub async fn get_tags_by_prefix(
+    state: tauri::State<'_, MemeDatabaseState>,
+    key: String,
+    prefix: String,
+) -> Result<Vec<Tag>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+
+    let mut query = state
+        .conn
+        .prepare("SELECT key,value FROM tag WHERE key = ?1 AND value LIKE ?2")
+        .unwrap();
+    let tags = query
+        .query_map([key, format!("{}%",prefix)], |r| {
+            Ok(Tag {
+                key: r.get("key").unwrap(),
+                value: r.get("value").unwrap(),
+            })
+        })
+        .unwrap()
+        .collect::<Result<Vec<Tag>, Error>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(tags)
+}
+
+#[tauri::command]
+pub async fn get_tags_fuzzy(
+    state: tauri::State<'_, MemeDatabaseState>,
+    keyword: String,
+) -> Result<Vec<Tag>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+
+    let mut query = state
+        .conn
+        .prepare("SELECT key,value FROM tag WHERE value LIKE ?1")
+        .unwrap();
+    let tags = query
+        .query_map([format!("%{}%", keyword)], |r| {
+            Ok(Tag {
+                key: r.get("key").unwrap(),
+                value: r.get("value").unwrap(),
+            })
+        })
+        .unwrap()
+        .collect::<Result<Vec<Tag>, Error>>()
+        .map_err(|e| e.to_string())?;
+    Ok(tags)
+}

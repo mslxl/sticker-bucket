@@ -43,3 +43,15 @@ export async function getMemeById(id: number): Promise<MemeQueried> {
 export async function getTagsById(id: number): Promise<Tag[]> {
   return invoke<Tag[]>('get_tags_by_id', { id })
 }
+
+export async function getTagKeysByPrefix(prefix: string): Promise<string[]> {
+  return invoke<string[]>('get_tag_keys_by_prefix', { prefix: prefix })
+}
+
+export async function getTagsByPrefix(key: string, prefix: string): Promise<Tag[]> {
+  return invoke<Tag[]>('get_tags_by_prefix', { key: key, prefix: prefix })
+}
+
+export async function getTagsFuzzy(keyword: string): Promise<Tag[]> {
+  return invoke<Tag[]>('get_tags_fuzzy', { keyword: keyword })
+}
