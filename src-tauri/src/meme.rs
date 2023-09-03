@@ -147,7 +147,10 @@ pub async fn search_meme(
                 name: row.get("name").unwrap(),
                 description: row.get("description").ok(),
                 ty: row.get("ty").unwrap(),
-                path: compute_path(&state.path, &hash).to_str().unwrap().to_owned(),
+                path: compute_path(&state.path, &hash)
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
                 hash: hash,
                 fav: row.get("fav").unwrap(),
                 trash: row.get("trash").unwrap(),
@@ -156,7 +159,61 @@ pub async fn search_meme(
         })
         .unwrap()
         .collect::<Result<Vec<MemeQueried>, Error>>()
-        .map_err(|e|e.to_string())?;
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_meme_by_id(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i64,
+) -> Result<MemeQueried, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+    let result = state
+        .conn
+        .query_row("SELECT * FROM meme WHERE id = ?1", [id], |row| {
+            let hash: String = row.get("hash").unwrap();
+            Ok(MemeQueried {
+                id: row.get("id").unwrap(),
+                name: row.get("name").unwrap(),
+                description: row.get("description").ok(),
+                ty: row.get("ty").unwrap(),
+                path: compute_path(&state.path, &hash)
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+                hash: hash,
+                fav: row.get("fav").unwrap(),
+                trash: row.get("trash").unwrap(),
+                pkg_id: row.get("pkg_id").unwrap(),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_tags_by_id(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i64,
+) -> Result<Vec<Tag>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+
+    let mut query = state.conn.prepare("SELECT key, value FROM tag LEFT JOIN meme_tag ON tag.id = meme_tag.tag_id WHERE meme_tag.meme_id = ?1").unwrap();
+    let result = query
+        .query_map([id], |row| {
+            Ok(Tag {
+                key: row.get("key").unwrap(),
+                value: row.get("value").unwrap(),
+            })
+        })
+        .unwrap()
+        .collect::<Result<Vec<Tag>, Error>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(result)
 }

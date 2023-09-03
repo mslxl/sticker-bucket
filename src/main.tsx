@@ -7,6 +7,7 @@ import { RouterProvider } from 'react-router-dom'
 import './i18n'
 import router from './routes'
 import LoadingPage from './pages/loading/page'
+import './global.scss'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

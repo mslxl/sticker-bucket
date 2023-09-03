@@ -1,4 +1,5 @@
 import { dialog } from '@tauri-apps/api'
+import { redirect } from 'react-router-dom'
 
 export default async function loader() {
   const value = await dialog.open({
@@ -11,7 +12,7 @@ export default async function loader() {
   })
 
   if (value === null) {
-    return {files: null}
+    return redirect('/dashboard')
   } else {
     if (typeof value == 'object') {
       return {files: value}

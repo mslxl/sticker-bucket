@@ -19,8 +19,7 @@ fn main() {
         .unwrap()
         .parent()
         .unwrap()
-        .to_path_buf()
-        .join("storage");
+        .to_path_buf();
     if !storage_dir.exists(){
         fs::create_dir_all(&storage_dir).unwrap();
     }
@@ -36,6 +35,8 @@ fn main() {
             zustand_storage::zustand_del,
             meme::add_meme_record,
             meme::search_meme,
+            meme::get_meme_by_id,
+            meme::get_tags_by_id,
             db::open_storage,
             db::get_storage,
             db::is_storage_available

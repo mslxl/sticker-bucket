@@ -9,9 +9,7 @@ import { useDatabase } from '../../../store/database'
 
 export default function AddPage() {
   const { files } = useLoaderData() as { files: string[] }
-  if (files == null) {
-    history.back()
-  }
+
   const multifile = files.length != 1
   const [prog, setProg] = useState(0)
 

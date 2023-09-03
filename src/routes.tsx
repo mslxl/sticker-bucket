@@ -9,8 +9,11 @@ const DashboardPage = lazy(() => import('./pages/dashboard/page'))
 
 const AddLayout = lazy(() => import('./pages/add/layout'))
 const AddImagePage = lazy(() => import('./pages/add/image/page'))
-import addImagePageLoader from './pages/add/image/loader'
+import AddImagePageLoader from './pages/add/image/loader'
 const AddTextPage = lazy(() => import('./pages/add/text/page'))
+
+const MemePreviewPage = lazy(()=>import('./pages/meme/page'))
+import MemePreivewPageLoader from './pages/meme/loader'
 
 const routes = createBrowserRouter([
   {
@@ -29,13 +32,18 @@ const routes = createBrowserRouter([
     ]
   },
   {
+    path: '/preview/:id',
+    element: <MemePreviewPage />,
+    loader: MemePreivewPageLoader,
+  },
+  {
     path: '/add',
     element: <AddLayout />,
     children: [
       {
         path: '/add/image',
         element: <AddImagePage />,
-        loader: addImagePageLoader
+        loader: AddImagePageLoader
       },
       {
         path: '/add/text',

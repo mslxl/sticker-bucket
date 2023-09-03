@@ -32,6 +32,14 @@ export interface MemeQueried extends MemePkg {
   path: string
 }
 
-export async function searchMeme(stmt: string, page: number): Promise<MemeQueried[]>{
-  return invoke<MemeQueried[]>('search_meme', {stmt, page})
+export async function searchMeme(stmt: string, page: number): Promise<MemeQueried[]> {
+  return invoke<MemeQueried[]>('search_meme', { stmt, page })
+}
+
+export async function getMemeById(id: number): Promise<MemeQueried> {
+  return invoke<MemeQueried>('get_meme_by_id', { id })
+}
+
+export async function getTagsById(id: number): Promise<Tag[]> {
+  return invoke<Tag[]>('get_tags_by_id', { id })
 }
