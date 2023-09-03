@@ -37,6 +37,9 @@ fn main() {
             meme::search_meme,
             meme::get_meme_by_id,
             meme::get_tags_by_id,
+            meme::get_tag_keys_by_prefix,
+            meme::get_tags_by_prefix,
+            meme::get_tags_fuzzy,
             db::open_storage,
             db::get_storage,
             db::is_storage_available

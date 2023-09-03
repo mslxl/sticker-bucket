@@ -1,7 +1,8 @@
 import * as R from 'ramda'
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import * as db from '../libs/native/db'
+import { Fragment, forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Tag, collectTag } from '../model/meme'
-import { Box, TextField, IconButton, Grid, Stack, Paper,  Snackbar, Alert } from '@mui/material'
+import { Box, TextField, IconButton, Grid, Stack, Paper, Snackbar, Alert, Autocomplete, CircularProgress } from '@mui/material'
 import { KeyboardReturn as ReturnIcon } from '@mui/icons-material'
 import TagShowcase from './TagShowcase'
 
@@ -88,6 +89,29 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     handleLock={handleToggleTagLock}
     handleDelete={deleteTag} />
   )
+  const loading = false
+  const [autocompleteOpen, setAutocompleteOpen] = useState(false)
+  const [options, setOptions] = useState<Tag[]>([])
+
+  async function updateAutocomplete() {
+    const inp = textFieldTag.current?.value || ''
+    if (inp.length == 0) {
+      setOptions([])
+    } else {
+      if (inp.indexOf(':') == -1) {
+        const opts = R.concat(
+          R.map(k => ({ key: k, value: '' }), await db.getTagKeysByPrefix(inp)),
+          await db.getTagsFuzzy(inp)
+        )
+        console.log(opts)
+        setOptions(opts)
+      } else {
+        const [key, value] = inp.split(':', 2)
+        const opts = await db.getTagsByPrefix(key, value)
+        setOptions(opts)
+      }
+    }
+  }
 
   return (
     <>
@@ -97,7 +121,39 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
             width: '100%',
             display: 'flex'
           }}>
-          <TextField inputRef={textFieldTag} label='Tag' variant='filled' sx={{ flex: '1' }} />
+
+          <Autocomplete
+            sx={{ flex: '1' }}
+            open={autocompleteOpen}
+            onOpen={() => { setAutocompleteOpen(true); updateAutocomplete() }}
+            onClose={() => setAutocompleteOpen(false)}
+            loading={loading}
+            options={options}
+            filterOptions={R.identity}
+            isOptionEqualToValue={R.identical}
+            getOptionLabel={(option) => `${option.key}:${option.value}`}
+            includeInputInList
+            autoComplete
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                inputRef={textFieldTag}
+                label='Tag'
+                variant='filled'
+                onChange={updateAutocomplete}
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <Fragment>
+                      {loading ? <CircularProgress color='inherit' size={20} /> : null}
+                      {params.InputProps.endAdornment}
+                    </Fragment>
+                  )
+                }}
+              />
+            )}
+          />
+
           <IconButton sx={{ p: '10px' }} onClick={handleAddTag}>
             <ReturnIcon />
           </IconButton>
