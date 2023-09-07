@@ -1,6 +1,6 @@
 import { Backdrop, Box, Button, Divider, Fade, IconButton, ImageListItem, ImageListItemBar, ListItemIcon, ListItemText, Menu, MenuItem, MenuList, Modal, Paper, Typography } from '@mui/material'
 import { MemeQueried } from '../libs/native/db'
-import { Menu as MenuIcon, ContentCopy as CopyIcon, Message as DetailsIcon, Delete as DeleteIcon } from '@mui/icons-material'
+import { Menu as MenuIcon, ContentCopy as CopyIcon, Message as DetailsIcon, Delete as DeleteIcon, Edit as EditIcon } from '@mui/icons-material'
 import { tauri } from '@tauri-apps/api'
 import { useNavigate } from 'react-router-dom'
 import { useCallback, useRef, useState } from 'react'
@@ -35,7 +35,7 @@ function TextMeme({ meme }: PreviewProps) {
     <Typography
       variant="body1"
       gutterBottom
-      sx={(theme)=>({
+      sx={(theme) => ({
         minHeight: '120px',
         padding: '12px',
         maxHeight: '24em',
@@ -96,10 +96,8 @@ export function MemePreview({ meme, className, onLoad }: PreviewProps) {
       </Modal>
 
       <ImageListItem
-        className={className}
-        sx={{
-          maxWidth: '360px',
-        }}>
+        sx={{ width: '24rem', minHeight: '10rem' }}
+        className={className}>
         <Paper elevation={4}>
           <Button
             variant='text'
@@ -135,6 +133,12 @@ export function MemePreview({ meme, className, onLoad }: PreviewProps) {
               <ListItemText>Detail</ListItemText>
             </MenuItem>
             <Divider />
+            <MenuItem onClick={() => meme.ty == 'image' ? navigateTo(`/edit/image/${meme.id}`) : navigateTo(`/edit/text/${meme.id}`)}>
+              <ListItemIcon>
+                <EditIcon />
+              </ListItemIcon>
+              <ListItemText>Edit</ListItemText>
+            </MenuItem>
             <MenuItem onClick={() => setShowDelDialog(true)}>
               <ListItemIcon>
                 <DeleteIcon />

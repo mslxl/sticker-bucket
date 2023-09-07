@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use rusqlite::{Connection, Error, OptionalExtension};
 
@@ -8,7 +8,7 @@ use crate::{
     AppDir,
 };
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash)]
 pub struct Tag {
     key: String,
     value: String,
@@ -124,6 +124,44 @@ pub async fn add_meme_record(
 }
 
 #[tauri::command]
+pub async fn update_meme_record(
+    db_state: tauri::State<'_, MemeDatabaseState>,
+    meme_id: i64,
+    item: MemeToAdd,
+) -> Result<(), String> {
+    // let mut connection = db_state.state.as_ref().unwrap().conn.lock().await;
+    let mut guard = db_state.state.lock().await;
+    let state = &mut guard.as_mut().unwrap();
+
+    let conn = state.conn.transaction().map_err(|e| e.to_string())?;
+
+    let tag_id = item
+        .tags
+        .iter()
+        .map(|t| make_tag(&conn, &t.key, &t.value))
+        .collect::<Result<Vec<i64>, String>>()?;
+
+    conn.execute("UPDATE meme SET name = ?1, description = ?2, fav = ?3, pkg_id = ?4 WHERE id = ?5", (
+        item.name,
+        item.description,
+        item.fav,
+        item.pkg_id,
+        meme_id
+    ))
+    .map_err(|e| e.to_string())?;
+
+    conn.execute("DELETE FROM meme_tag WHERE meme_id = ?1", [meme_id])
+        .map_err(|e| e.to_string())?;
+
+    for tid in tag_id {
+        insert_meme_tag(&conn, meme_id, tid)?;
+    }
+
+    conn.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn search_meme(
     state: tauri::State<'_, MemeDatabaseState>,
     stmt: String,
@@ -138,6 +176,7 @@ pub async fn search_meme(
         30 * page
     ));
 
+    println!("{}", sql_stmt.replace("\n", "").replace("  ", " "));
     let mut query = state.conn.prepare(&sql_stmt).unwrap();
     let result = query
         .query_map([], |row| {
@@ -231,7 +270,7 @@ pub async fn get_tag_keys_by_prefix(
         .prepare("SELECT DISTINCT(key) FROM tag WHERE key LIKE ?1")
         .unwrap();
     let keys = query
-        .query_map([format!("{}%",prefix)], |r| Ok(r.get(0).unwrap()))
+        .query_map([format!("{}%", prefix)], |r| Ok(r.get(0).unwrap()))
         .unwrap()
         .collect::<Result<Vec<String>, Error>>()
         .map_err(|e| e.to_string())?;
@@ -253,7 +292,7 @@ pub async fn get_tags_by_prefix(
         .prepare("SELECT key,value FROM tag WHERE key = ?1 AND value LIKE ?2")
         .unwrap();
     let tags = query
-        .query_map([key, format!("{}%",prefix)], |r| {
+        .query_map([key, format!("{}%", prefix)], |r| {
             Ok(Tag {
                 key: r.get("key").unwrap(),
                 value: r.get("value").unwrap(),
@@ -289,4 +328,57 @@ pub async fn get_tags_fuzzy(
         .collect::<Result<Vec<Tag>, Error>>()
         .map_err(|e| e.to_string())?;
     Ok(tags)
+}
+
+fn get_relate_tag_single(key: &str, value: &str, conn: &Connection) -> Result<Vec<Tag>, String> {
+    let mut query=  conn.prepare("SELECT key, value FROM meme_tag  LEFT JOIN tag ON meme_tag.tag_id = tag.id WHERE (key !=  ?1 OR value != ?2) AND meme_id IN (
+	    SELECT meme_id FROM meme_tag LEFT JOIN tag ON meme_tag.tag_id = tag.id WHERE key = ?1 AND value = ?2
+    )").unwrap();
+    let tags = query
+        .query_map([key, value], |row| {
+            Ok(Tag {
+                key: row.get("key").unwrap(),
+                value: row.get("value").unwrap(),
+            })
+        })
+        .unwrap()
+        .collect::<Result<Vec<Tag>, Error>>()
+        .map_err(|e| e.to_string())?;
+    Ok(tags)
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TagFreq {
+    key: String,
+    value: String,
+    freq: u32,
+}
+
+#[tauri::command]
+pub async fn get_tags_related(
+    state: tauri::State<'_, MemeDatabaseState>,
+    tags: Vec<Tag>,
+) -> Result<Vec<TagFreq>, String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+    let mut freq = tags
+        .iter()
+        .map(|item| get_relate_tag_single(&item.key, &item.value, &state.conn))
+        .collect::<Result<Vec<Vec<Tag>>, String>>()?
+        .into_iter()
+        .flatten()
+        .filter(|x| !tags.contains(x))
+        .fold(HashMap::<Tag, usize>::new(), |mut m, x| {
+            *m.entry(x).or_default() += 1;
+            m
+        })
+        .into_iter()
+        .map(|v| TagFreq {
+            key: v.0.key,
+            value: v.0.value,
+            freq: v.1 as u32,
+        })
+        .collect::<Vec<TagFreq>>();
+    freq.sort_by(|l, r| u32::partial_cmp(&r.freq, &l.freq).unwrap());
+    Ok(freq)
 }

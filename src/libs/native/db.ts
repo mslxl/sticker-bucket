@@ -1,3 +1,4 @@
+import * as R from 'ramda'
 import { invoke } from '@tauri-apps/api'
 import { MemePkg, Tag } from '../../model/meme'
 
@@ -27,6 +28,12 @@ export async function addMemeRecord(meme: MemeToAdd) {
   })
 }
 
+export async function updateMemeRecord(id: number, meme: MemeToAdd){
+  await invoke('update_meme_record', {
+    memeId: id,
+    item: meme
+  })
+}
 
 export interface MemeQueried extends MemePkg {
   path: string
@@ -54,4 +61,13 @@ export async function getTagsByPrefix(key: string, prefix: string): Promise<Tag[
 
 export async function getTagsFuzzy(keyword: string): Promise<Tag[]> {
   return invoke<Tag[]>('get_tags_fuzzy', { keyword: keyword })
+}
+
+export interface TagFreq extends Tag{
+  freq: number
+}
+
+export async function getTagsRelated(tags: Tag[]): Promise<TagFreq[]>{
+  if(R.isEmpty(tags)) return []
+  return invoke<TagFreq[]>('get_tags_related', {tags: tags})
 }
