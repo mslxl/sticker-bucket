@@ -12,6 +12,11 @@ const AddImagePage = lazy(() => import('./pages/add/image/page'))
 import AddImagePageLoader from './pages/add/image/loader'
 const AddTextPage = lazy(() => import('./pages/add/text/page'))
 
+const EditLayout = lazy(() => import('./pages/edit/layout'))
+const EditImagePage = lazy(()=>import('./pages/edit/image/page'))
+import EditPageLoader from './pages/edit/loader'
+const EditTextPage = lazy(()=>import('./pages/edit/image/page'))
+
 const MemePreviewPage = lazy(()=>import('./pages/meme/page'))
 import MemePreivewPageLoader from './pages/meme/loader'
 
@@ -50,6 +55,23 @@ const routes = createBrowserRouter([
         element: <AddTextPage />
       }
     ]
+  },
+  {
+    path: '/edit',
+    element: <EditLayout />,
+    children: [
+      {
+        path: '/edit/image/:id',
+        element: <EditImagePage />,
+        loader: EditPageLoader
+      },
+      {
+        path: '/edit/text/:id',
+        element: <EditTextPage />,
+        loader: EditPageLoader
+      }
+    ]
+
   }
 ])
 

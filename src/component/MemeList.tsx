@@ -30,6 +30,9 @@ export default function MemeList({ memes, hasNext, loadNextMeme }: MemeListProp)
       fetchingNext.current = true
       loadNextMeme().then(() => {
         fetchingNext.current = false
+      }).catch(e=>{
+        fetchingNext.current = false
+        console.log(e)
       })
     }
   }, [hasNext, loadNextMeme, memes, listVirtualizer.getVirtualItems()])
@@ -39,7 +42,8 @@ export default function MemeList({ memes, hasNext, loadNextMeme }: MemeListProp)
     masonry.current = new Masonry(parentRef.current!, {
       itemSelector: '.masonry-item',
       gutter: 12,
-      columnWidth: 350
+      // columnWidth: '.masonry-sizer',
+      // percentPosition: true,
       // fitWidth: true
     })
     return () => {
@@ -49,7 +53,7 @@ export default function MemeList({ memes, hasNext, loadNextMeme }: MemeListProp)
     }
   })
 
-  useWindowsSize(()=>{
+  useWindowsSize(() => {
     masonry.current?.layout && masonry.current.layout()
   })
 
@@ -77,6 +81,7 @@ export default function MemeList({ memes, hasNext, loadNextMeme }: MemeListProp)
     <>
       <div
         ref={parentRef}>
+        <div className='masonry-sizer' css={{ width: '33.33%' }}></div>
         {listItems}
       </div>
     </>

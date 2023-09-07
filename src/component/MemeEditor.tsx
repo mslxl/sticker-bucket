@@ -13,11 +13,12 @@ import * as ocr from '../libs/ocr'
 export interface MemeEditorProp {
   imageUrl: string
   defaultValue?: Meme
-  confirm?: (meme: Meme) => Promise<void>
+  noDeleteCheckbox?: boolean
+  confirm?: (meme: Meme, del: boolean) => Promise<void>
   cancel?: () => void
 }
 
-export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEditorProp) {
+export default function MemeEditor({ imageUrl, defaultValue, confirm, noDeleteCheckbox }: MemeEditorProp) {
 
   const [meme, setMeme] = useState(defaultValue || {
     id: null,
@@ -31,6 +32,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
 
   const refName = useRef<HTMLInputElement>()
   const [backDropOpen, setBackDropOpen] = useState(false)
+  const deleteFileAfterAdd = useRef(false)
 
   async function ocrText() {
     setBackDropOpen(true)
@@ -101,8 +103,10 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
       </Grid>
       <Paper sx={{ padding: 2 }}>
         <FormGroup>
-          <FormControlLabel control={<Checkbox defaultChecked />} label='Delete file after add' />
-          <FormControlLabel control={<Checkbox defaultChecked onChange={e => handleMemeFav(e.target.checked)} />} label='Favourite' />
+          {
+            noDeleteCheckbox !== true ? <FormControlLabel control={<Checkbox onChange={e => deleteFileAfterAdd.current = e.target.checked} />} label='Delete file after add' />: null
+          }
+          <FormControlLabel control={<Checkbox defaultChecked={meme.fav} onChange={e => handleMemeFav(e.target.checked)} />} label='Favourite' />
         </FormGroup>
         <Button variant='contained' onClick={ocrText} sx={{ marginBottom: '12px' }}>OCR Name</Button>
         <TextField
@@ -121,7 +125,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
           onChange={(e) => handleMemeDescription(e.target.value)}
           defaultValue={meme.description} />
 
-        <TagEditor onChange={updateTags} ref={tagEditor} />
+        <TagEditor defaultValue={meme.tags} onChange={updateTags} ref={tagEditor} />
       </Paper>
       <Box
         sx={{
@@ -130,7 +134,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm }: MemeEdit
           flexDirection: 'row-reverse'
         }}>
         <Fab
-          onClick={() => confirm && confirm(meme)}
+          onClick={() => confirm && confirm(meme, deleteFileAfterAdd.current)}
           variant='extended'
           color='primary'>
           <DoneIcon sx={{ mr: 1 }} />

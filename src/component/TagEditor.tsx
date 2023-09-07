@@ -1,8 +1,8 @@
 import * as R from 'ramda'
 import * as db from '../libs/native/db'
-import { Fragment, forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { Tag, collectTag } from '../model/meme'
-import { Box, TextField, IconButton, Grid, Stack, Paper, Snackbar, Alert, Autocomplete, CircularProgress } from '@mui/material'
+import { Box, TextField, IconButton, Grid, Stack, Paper, Snackbar, Alert, Autocomplete, CircularProgress, List, ListItem, ListItemButton, ListItemText } from '@mui/material'
 import { KeyboardReturn as ReturnIcon } from '@mui/icons-material'
 import TagShowcase from './TagShowcase'
 
@@ -12,7 +12,6 @@ export interface TagEditorProp {
 }
 
 export interface TagEditorRef {
-  textField: HTMLInputElement,
   tags: Tag[],
   clear(): void,
   add(name: string, value: string): void,
@@ -28,7 +27,7 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     setSnackbarOpen(true)
   }
 
-  const textFieldTag = useRef<HTMLInputElement>()
+  const [textInputTag, setTextInputTag] = useState('')
 
   const [tags, setTags] = useState<Tag[]>(defaultValue || [])
   const [lockTag, setLockTag] = useState<Tag[]>([])
@@ -52,6 +51,7 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
       return false
     }
     setTags((state) => [...state, { key, value }])
+    onChange && onChange([...tags, { key, value }])
     return true
   }
 
@@ -59,22 +59,27 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     setTags(
       R.filter(t => R.find(R.equals(t), lockTag) != undefined)
     )
+    onChange && onChange([])
   }
 
   function handleAddTag() {
-    const text = textFieldTag.current!.value
-    const [key, value] = text.split(':', 2)
+    if (textInputTag.indexOf(':') == -1) {
+      return
+    }
+    const [key, value] = textInputTag.split(':', 2)
     const result = addTag(key, value)
+    setTextInputTag('')
     if (!result) {
       openSnackbar('Tag already exists!')
-    } else {
-      onChange && onChange([...tags, { key, value }])
-    }
-    textFieldTag.current!.value = ''
+    } 
   }
 
+  const [relatedTags, setRelatedTags] = useState<db.TagFreq[]>([])
+  useEffect(() => {
+    db.getTagsRelated(tags).then(setRelatedTags)
+  }, [tags])
+
   useImperativeHandle(ref, () => ({
-    textField: textFieldTag.current!,
     tags: tags,
     clear: clearTag,
     add: addTag,
@@ -89,91 +94,112 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     handleLock={handleToggleTagLock}
     handleDelete={deleteTag} />
   )
+  const recommendTags = (
+    <List sx={{maxHeight: '32rem', overflowY: 'auto'}}>
+      {
+        relatedTags.map((t) => (
+          <ListItem key={`${t.key}:${t.value}`}>
+            <ListItemButton onClick={() => addTag(t.key, t.value)}>
+              <ListItemText
+                primary={`${t.key}:${t.value}`}
+                secondary={t.freq} />
+            </ListItemButton>
+          </ListItem>
+        ))
+      }
+    </List>
+  )
+
   const loading = false
   const [autocompleteOpen, setAutocompleteOpen] = useState(false)
   const [options, setOptions] = useState<Tag[]>([])
 
   async function updateAutocomplete() {
-    const inp = textFieldTag.current?.value || ''
-    if (inp.length == 0) {
+    if (textInputTag.length == 0) {
       setOptions([])
     } else {
-      if (inp.indexOf(':') == -1) {
+      const beforeInput = textInputTag
+      if (textInputTag.indexOf(':') == -1) {
         const opts = R.concat(
-          R.map(k => ({ key: k, value: '' }), await db.getTagKeysByPrefix(inp)),
-          await db.getTagsFuzzy(inp)
+          R.map(k => ({ key: k, value: '' }), await db.getTagKeysByPrefix(textInputTag)),
+          await db.getTagsFuzzy(textInputTag)
         )
-        console.log(opts)
-        setOptions(opts)
+        if (textInputTag == beforeInput)
+          setOptions(opts)
       } else {
-        const [key, value] = inp.split(':', 2)
+        const [key, value] = textInputTag.split(':', 2)
         const opts = await db.getTagsByPrefix(key, value)
-        setOptions(opts)
+        if (textInputTag == beforeInput)
+          setOptions(opts)
       }
     }
   }
+  useEffect(() => {
+    updateAutocomplete()
+  }, [textInputTag])
 
   return (
     <>
       <Box>
-        <Box
-          sx={{
-            width: '100%',
-            display: 'flex'
-          }}>
-
-          <Autocomplete
-            sx={{ flex: '1' }}
-            open={autocompleteOpen}
-            onOpen={() => { setAutocompleteOpen(true); updateAutocomplete() }}
-            onClose={() => setAutocompleteOpen(false)}
-            loading={loading}
-            options={options}
-            filterOptions={R.identity}
-            isOptionEqualToValue={R.identical}
-            getOptionLabel={(option) => `${option.key}:${option.value}`}
-            includeInputInList
-            autoComplete
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                inputRef={textFieldTag}
-                label='Tag'
-                variant='filled'
-                onChange={updateAutocomplete}
-                InputProps={{
-                  ...params.InputProps,
-                  endAdornment: (
-                    <Fragment>
-                      {loading ? <CircularProgress color='inherit' size={20} /> : null}
-                      {params.InputProps.endAdornment}
-                    </Fragment>
-                  )
-                }}
-              />
-            )}
-          />
-
-          <IconButton sx={{ p: '10px' }} onClick={handleAddTag}>
-            <ReturnIcon />
-          </IconButton>
-        </Box>
         <Grid
           container
           spacing={2}>
           <Grid item xs={8}>
+            <Box
+              sx={{
+                width: '100%',
+                display: 'flex'
+              }}>
+
+              <Autocomplete
+                sx={{ flex: '1' }}
+                open={autocompleteOpen}
+                onOpen={() => setAutocompleteOpen(true)}
+                onClose={() => setAutocompleteOpen(false)}
+                openOnFocus
+                inputValue={textInputTag}
+                onInputChange={(_, val) => setTextInputTag(val)}
+                loading={loading}
+                options={options}
+                freeSolo
+                disableClearable
+                filterOptions={R.identity}
+                isOptionEqualToValue={R.identical}
+                groupBy={(option) => R.isEmpty(option.value) ? '' : option.key}
+                getOptionLabel={(option) => typeof option === 'string' ? option : `${option.key}:${option.value}`}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label='Tag'
+                    variant='filled'
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <Fragment>
+                          {loading ? <CircularProgress color='inherit' size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </Fragment>
+                      )
+                    }}
+                  />
+                )}
+              />
+
+              <IconButton sx={{ p: '10px' }} onClick={handleAddTag}>
+                <ReturnIcon />
+              </IconButton>
+            </Box>
+
             <Paper
               variant='outlined'
               sx={{ padding: '6px' }}>
               <Stack spacing={2}>
-                {
-                  tagShowcase
-                }
+                {tagShowcase}
               </Stack>
             </Paper>
           </Grid>
           <Grid item xs={4}>
-
+            {recommendTags}
           </Grid>
         </Grid>
       </Box>
