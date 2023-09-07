@@ -3,13 +3,23 @@ import {
   Computer as ComputerIcon,
   TextFields as TextIcon
 } from '@mui/icons-material'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useDocumentTitle } from '../../libs/native/windows'
 import MemeList from '../../component/MemeList'
 import { useDatabase } from '../../store/database'
+import { useEffect } from 'react'
 
 
 export default function DashboardPage() {
+  const setSerachStatment = useDatabase(state => state.setSearchStatment)
+
+  const params = useParams()
+  useEffect(() => {
+    if (params && params.search) {
+      setSerachStatment(params.search)
+    }
+  }, [params])
+
   const navigate = useNavigate()
   const memes = useDatabase((state) => state.memes)
   const hasNext = useDatabase((state) => state.hasNext)

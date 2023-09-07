@@ -3,7 +3,8 @@ import { Tag } from '../../model/meme'
 
 export interface MemeLoadValue {
   meme: MemeQueried,
-  tags: Tag[]
+  tags: Tag[],
+  id: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,6 +15,7 @@ export default async function load({ params }: any): Promise<MemeLoadValue> {
   const tags = await getTagsById(id)
   return {
     meme,
-    tags
+    tags,
+    id
   }
 }

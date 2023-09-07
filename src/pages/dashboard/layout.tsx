@@ -18,7 +18,7 @@ import {
   AllInbox as AllIcon,
   Favorite as FavoriteIcon,
 } from '@mui/icons-material'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 import LoadingPage from '../loading/page'
 import { getStorage } from '../../libs/native/db'
 import { useDatabase } from '../../store/database'
@@ -174,6 +174,8 @@ export default function DashboardLayout() {
   const theme = useTheme()
   const [open, setOpen] = useState(false)
   const setSearchStatment = useDatabase((state) => state.setSearchStatment)
+  const searchStatment = useDatabase(state=>state.stmt)
+  const navgiate = useNavigate()
 
   const handleDrawerOpen = () => {
     setOpen(true)
@@ -221,6 +223,7 @@ export default function DashboardLayout() {
             <StyledInputBase
               placeholder='Search…'
               inputProps={{ 'aria-label': 'search' }}
+              value={searchStatment}
               onChange={(e) => setSearchStatment(e.target.value)}
             />
           </Search>
@@ -238,6 +241,7 @@ export default function DashboardLayout() {
         <List>
           <DrawerItemButton
             title='All'
+            onClick={()=>{setSearchStatment('');navgiate('/dashboard')}}
             open={open}>
             <AllIcon />
           </DrawerItemButton>

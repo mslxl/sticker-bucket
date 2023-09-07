@@ -1,4 +1,4 @@
-import { useLoaderData } from 'react-router-dom'
+import { useLoaderData, useNavigate } from 'react-router-dom'
 import { MemeLoadValue } from './loader'
 import { useDocumentTitle } from '../../libs/native/windows'
 import { AppBar, Box, Button, Card, CardActions, CardContent, Container, CssBaseline, IconButton, Toolbar, Typography } from '@mui/material'
@@ -7,12 +7,14 @@ import { tauri } from '@tauri-apps/api'
 import { useMemo } from 'react'
 import { collectTag } from '../../model/meme'
 import TagShowcase from '../../component/TagShowcase'
+import Image from '../../component/Image'
 
 export default function MemePreviewPage() {
   const value = useLoaderData() as MemeLoadValue
 
   useDocumentTitle(value.meme.name)
   const tagM = useMemo(() => collectTag(value.tags), [value.tags])
+  const navigate = useNavigate()
 
   return (
     <Box sx={{ flexGrow: 1 }}>
@@ -34,13 +36,10 @@ export default function MemePreviewPage() {
       <CssBaseline />
       <Container>
         <Card variant='outlined'>
-          <CardContent sx={{display: 'flex'}}>
+          <CardContent sx={{ display: 'flex' }}>
             {
               value.meme.ty == 'image' ? (
-                <Box
-                  component="img"
-                  src={tauri.convertFileSrc(value.meme.path)}
-                  sx={{ margin: 2 }} />
+                <Image src={tauri.convertFileSrc(value.meme.path)} />
               ) : (
                 <Typography
                   variant='body1'>
@@ -53,7 +52,7 @@ export default function MemePreviewPage() {
           <CardActions>
             <Button size='small'>Fav</Button>
             <Button size='small'>Copy</Button>
-            <Button size='small'>Edit</Button>
+            <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>Edit</Button>
             <Button size='small'>Extend</Button>
 
           </CardActions>
