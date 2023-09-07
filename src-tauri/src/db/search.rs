@@ -117,7 +117,7 @@ pub fn build_search_sql(search_stmt: &str) -> Result<String, SearchError> {
                 kwd, kwd
             )),
             SearchStmt::Tag(namespace, value) => tag_select.push(format!(
-                "SELECT meme_id FROM tag WHERE key = '{}' AND value LIKE '{}%'",
+                "SELECT meme_id FROM tagid WHERE key = '{}' AND value LIKE '{}%'",
                 namespace, value
             )),
         }
@@ -127,7 +127,7 @@ pub fn build_search_sql(search_stmt: &str) -> Result<String, SearchError> {
     } else {
         format!(
             "(
-                WITH tag AS (
+                WITH tagid AS (
                     SELECT * FROM meme_tag LEFT JOIN tag ON meme_tag.tag_id = tag.id
                 )
                 {}
