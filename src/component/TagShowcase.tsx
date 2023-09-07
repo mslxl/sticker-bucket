@@ -2,6 +2,7 @@ import * as R from 'ramda'
 import { Chip, Stack } from '@mui/material'
 import { Tag, TagM } from '../model/meme'
 import { Lock as LockIcon } from '@mui/icons-material'
+import { useNavigate } from 'react-router-dom'
 
 export interface TagShowcaseProps {
   tags: TagM[],
@@ -11,6 +12,14 @@ export interface TagShowcaseProps {
   handleDelete?: (key: string, value: string) => void,
 }
 export default function TagShowcase({ tags, lockTag, lockable, handleLock, handleDelete }: TagShowcaseProps) {
+  const navigate = useNavigate()
+  function handleClickChip(key: string, value: string){
+    if(lockable && handleLock){
+      handleLock(key, value)
+    }else{
+      navigate(`/dashboard/s/${key}:${value}`)
+    }
+  }
   return (
     <Stack spacing={1} direction="column">
       {
@@ -26,8 +35,8 @@ export default function TagShowcase({ tags, lockTag, lockable, handleLock, handl
                   key={tag.value}
                   label={tag.value}
                   avatar={lock ? <LockIcon /> : undefined}
-                  clickable={lockable}
-                  onClick={() => lockable && handleLock && handleLock(tag.key, tag.value)}
+                  clickable
+                  onClick={() => handleClickChip(tag.key, tag.value)}
                   onDelete={(lock || !handleDelete) ? undefined : (() => handleDelete(tag.key, tag.value))} />
               )
             }

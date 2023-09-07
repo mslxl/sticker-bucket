@@ -166,11 +166,16 @@ pub async fn search_meme(
     state: tauri::State<'_, MemeDatabaseState>,
     stmt: String,
     page: i64,
+    fav: bool,
+    trash: bool,
 ) -> Result<Vec<MemeQueried>, String> {
     let guard = state.state.lock().await;
     let state = guard.as_ref().unwrap();
     let mut sql_stmt = build_search_sql(&stmt).map_err(|e| e.to_string())?;
-    sql_stmt.push_str("trash != 1 ");
+    sql_stmt.push_str(&format!("trash == {} ", trash));
+    if fav {
+        sql_stmt.push_str(&format!(" AND fav == {}", fav));
+    }
     sql_stmt.push_str(&format!(
         "ORDER BY update_time DESC LIMIT 30 OFFSET {}",
         30 * page
@@ -232,6 +237,34 @@ pub async fn get_meme_by_id(
         .map_err(|e| e.to_string())?;
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn delete_meme_by_id(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i64,
+) -> Result<(), String> {
+    let mut guard = state.state.lock().await;
+    let state = guard.as_mut().unwrap();
+    let conn = state.conn.transaction().map_err(|e|e.to_string())?;
+    conn.execute("DELETE FROM meme_tag WHERE meme_id = ?1", [id]).map_err(|e|e.to_string())?;
+    conn.execute("DELETE FROM meme WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
+    conn.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn trash_meme_by_id(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i64,
+    trash: bool
+) -> Result<(), String> {
+    let mut guard = state.state.lock().await;
+    let state = guard.as_mut().unwrap();
+    let conn = state.conn.transaction().map_err(|e|e.to_string())?;
+    conn.execute("UPDATE meme SET trash = ?1 WHERE id = ?2", (trash, id)).map_err(|e| e.to_string())?;
+    conn.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]

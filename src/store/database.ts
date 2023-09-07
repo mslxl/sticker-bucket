@@ -31,7 +31,7 @@ export const useDatabase = create(
       async loadNext() {
         const stmt = get().stmt
         const page = get().loadedPage
-        const result = await db.searchMeme(stmt, page + 1)
+        const result = await db.searchMeme(stmt, page + 1, false, false)
         if (result.length == 0) {
           set(() => ({
             hasNext: false

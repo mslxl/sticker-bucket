@@ -23,15 +23,28 @@ export async function getStorage(): Promise<string> {
 }
 
 export async function addMemeRecord(meme: MemeToAdd) {
-  await invoke('add_meme_record', {
+  return invoke('add_meme_record', {
     item: meme
   })
 }
 
 export async function updateMemeRecord(id: number, meme: MemeToAdd){
-  await invoke('update_meme_record', {
+  return invoke('update_meme_record', {
     memeId: id,
     item: meme
+  })
+}
+
+export async function deleteMemeRecord(id: number){
+  return invoke('delete_meme_by_id', {
+    id: id
+  })
+}
+
+export async function setTrashMemeRecord(id: number, trash: boolean){
+  return invoke('trash_meme_by_id', {
+    trash: trash,
+    id: id
   })
 }
 
@@ -39,8 +52,8 @@ export interface MemeQueried extends MemePkg {
   path: string
 }
 
-export async function searchMeme(stmt: string, page: number): Promise<MemeQueried[]> {
-  return invoke<MemeQueried[]>('search_meme', { stmt, page })
+export async function searchMeme(stmt: string, page: number, fav: boolean, trash: boolean): Promise<MemeQueried[]> {
+  return invoke<MemeQueried[]>('search_meme', { stmt, page, fav, trash })
 }
 
 export async function getMemeById(id: number): Promise<MemeQueried> {

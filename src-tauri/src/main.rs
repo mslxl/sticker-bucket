@@ -42,6 +42,8 @@ fn main() {
             meme::get_tags_by_prefix,
             meme::get_tags_fuzzy,
             meme::get_tags_related,
+            meme::delete_meme_by_id,
+            meme::trash_meme_by_id,
             db::open_storage,
             db::get_storage,
             db::is_storage_available
