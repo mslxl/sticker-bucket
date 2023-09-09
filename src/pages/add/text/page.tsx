@@ -2,16 +2,15 @@ import { useDocumentTitle } from '../../../libs/native/windows'
 import { Container } from '@mui/material'
 import MemeTextEditor from '../../../component/MemeTextEditor'
 import { Meme } from '../../../model/meme'
-import { useDatabase } from '../../../store/database'
+import { addMemeRecord } from '../../../libs/native/db'
 
 export default function AddPage() {
 
   useDocumentTitle('Add Text Snippet')
-  const database = useDatabase()
 
 
   async function confirmAdd(meme: Meme) {
-    await database.addMeme({
+    addMemeRecord({
       ...meme,
       pkg_id: 0
     })

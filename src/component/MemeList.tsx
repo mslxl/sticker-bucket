@@ -15,6 +15,10 @@ export interface MemeListProp {
 export default function MemeList({ memes, hasNext, loadNextMeme }: MemeListProp) {
   const parentRef = useRef<HTMLDivElement>(null)
 
+  useEffect(()=>{
+    loadNextMeme()
+  },[])
+
   const listVirtualizer = useVirtualizer({
     count: hasNext ? memes.length + 1 : memes.length,
     getScrollElement: () => parentRef.current,

@@ -1,55 +1,56 @@
-import { SpeedDial, SpeedDialAction, SpeedDialIcon } from '@mui/material'
-import {
-  Computer as ComputerIcon,
-  TextFields as TextIcon
-} from '@mui/icons-material'
-import { useNavigate, useParams } from 'react-router-dom'
-import { useDocumentTitle } from '../../libs/native/windows'
-import MemeList from '../../component/MemeList'
-import { useDatabase } from '../../store/database'
-import { useEffect } from 'react'
+import { path } from '@tauri-apps/api'
+import { useEffect, useMemo, useState } from 'react'
 
+import Box from '@mui/material/Box'
+import CssBaseline from '@mui/material/CssBaseline'
+import { useMatch, useParams } from 'react-router-dom'
+import { getStorage } from '../../libs/native/db'
+import DashboardAppbar from './DashboardAppbar'
+import DashboardDrawer, { DrawerHeader } from './DashboardDrawer'
+import { capitalize } from '@mui/material'
+import DashboardContent from './DashboardContent'
+import { SearchRequestBuilder } from '../../libs/search'
 
-export default function DashboardPage() {
-  const setSerachStatment = useDatabase(state => state.setSearchStatment)
+export default function DashboardLayout() {
+
+  const [windowTitle, setWindowTitle] = useState('Meme Management')
+  useEffect(() => {
+    getStorage().then(storage => {
+      setWindowTitle(capitalize(storage.substring(storage.lastIndexOf(path.sep) + 1)))
+    })
+  })
 
   const params = useParams()
-  useEffect(() => {
-    if (params && params.search) {
-      setSerachStatment(params.search)
-    }
-  }, [params])
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [searchContent, setSearchContent] = useState(params.search || '')
+  const favMatch = useMatch('/dashboard/fav')
+  const trashMatch = useMatch('/dashboard/trash')
 
-  const navigate = useNavigate()
-  const memes = useDatabase((state) => state.memes)
-  const hasNext = useDatabase((state) => state.hasNext)
-  const loadNextMemes = useDatabase((state) => state.loadNext)
-
-  useDocumentTitle('Meme Management Dashboard')
+  const searchResponse = useMemo(() => {
+    const builder = new SearchRequestBuilder()
+    builder.statement = searchContent
+    builder.filterFav = favMatch != null
+    builder.filterTrash = trashMatch != null
+    return builder.build()
+  }, [searchContent, favMatch, trashMatch])
 
 
   return (
-    <>
-      <MemeList
-        memes={memes}
-        hasNext={hasNext}
-        loadNextMeme={loadNextMemes} />
-
-      <SpeedDial
-        ariaLabel='Add Meme'
-        sx={{ position: 'fixed', bottom: 16, right: 16 }}
-        icon={<SpeedDialIcon />}>
-        <SpeedDialAction
-          key="local"
-          icon={<ComputerIcon />}
-          tooltipTitle="Local Image Source"
-          onClick={() => navigate('/add/image')} />
-        <SpeedDialAction
-          key="text"
-          icon={<TextIcon />}
-          tooltipTitle="Local Text Source"
-          onClick={() => navigate('/add/text')} />
-      </SpeedDial>
-    </>
+    <Box sx={{ display: 'flex' }}>
+      <CssBaseline />
+      <DashboardAppbar
+        title={windowTitle}
+        drawerOpen={drawerOpen}
+        onDrawerToggle={setDrawerOpen}
+        onSearchValueChange={setSearchContent}
+        defaultSearchValue={searchContent} />
+      <DashboardDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen} />
+      <Box component='main' sx={{ flexGrow: 1, p: 3 }}>
+        <DrawerHeader />
+        <DashboardContent initialSearchResponse={searchResponse} />
+      </Box>
+    </Box>
   )
 }
