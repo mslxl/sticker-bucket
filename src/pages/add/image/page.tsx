@@ -5,7 +5,7 @@ import { Container, LinearProgress } from '@mui/material'
 import MemeEditor from '../../../component/MemeEditor'
 import { useState } from 'react'
 import { Meme } from '../../../model/meme'
-import { useDatabase } from '../../../store/database'
+import { addMemeRecord } from '../../../libs/native/db'
 
 export default function AddPage() {
   const { files } = useLoaderData() as { files: string[] }
@@ -22,17 +22,16 @@ export default function AddPage() {
     navigate(-1)
   }
 
-  const database = useDatabase()
 
   async function handleMemeAdd(meme: Meme, del: boolean) {
     let noError = true
     try {
-      await database.addMeme({
+      await addMemeRecord({
         ...meme,
         pkg_id: 0,
         content: files[prog]
       })
-      if(del){
+      if (del) {
         await fs.removeFile(files[prog])
       }
     } catch (e) {

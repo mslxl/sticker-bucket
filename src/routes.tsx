@@ -4,7 +4,6 @@ import { createBrowserRouter } from 'react-router-dom'
 const WelcomeLayout = lazy(() => import('./pages/welcome/layout'))
 const WelcomePage = lazy(() => import('./pages/welcome/page'))
 
-const DashboardLayout = lazy(() => import('./pages/dashboard/layout'))
 const DashboardPage = lazy(() => import('./pages/dashboard/page'))
 
 const AddLayout = lazy(() => import('./pages/add/layout'))
@@ -28,7 +27,6 @@ const routes = createBrowserRouter([
   },
   {
     path: '/dashboard',
-    element: <DashboardLayout />,
     children: [
       {
         path: '/dashboard/',
@@ -36,6 +34,18 @@ const routes = createBrowserRouter([
       },
       {
         path: '/dashboard/s/:search',
+        element: <DashboardPage />
+      },
+      {
+        path: '/dashboard/fav/',
+        element: <DashboardPage />
+      },
+      {
+        path: '/dashboard/fav/s/:search',
+        element: <DashboardPage />
+      },
+      {
+        path: '/dashboard/trash',
         element: <DashboardPage />
       }
     ]

@@ -174,7 +174,7 @@ pub async fn search_meme(
     let mut sql_stmt = build_search_sql(&stmt).map_err(|e| e.to_string())?;
     sql_stmt.push_str(&format!("trash == {} ", trash));
     if fav {
-        sql_stmt.push_str(&format!(" AND fav == {}", fav));
+        sql_stmt.push_str(&format!(" AND fav == {} ", fav));
     }
     sql_stmt.push_str(&format!(
         "ORDER BY update_time DESC LIMIT 30 OFFSET {}",
@@ -182,7 +182,7 @@ pub async fn search_meme(
     ));
 
     println!("{}", sql_stmt.replace("\n", "").replace("  ", " "));
-    let mut query = state.conn.prepare(&sql_stmt).unwrap();
+    let mut query = state.conn.prepare(&sql_stmt).map_err(|e|e.to_string())?;
     let result = query
         .query_map([], |row| {
             let hash: String = row.get("hash").unwrap();
