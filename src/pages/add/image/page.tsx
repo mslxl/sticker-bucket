@@ -17,12 +17,6 @@ export default function AddPage() {
 
   const navigate = useNavigate()
 
-  if (prog >= files.length) {
-    // TODO: render message when multifile is true
-    navigate(-1)
-  }
-
-
   async function handleMemeAdd(meme: Meme, del: boolean) {
     let noError = true
     try {
@@ -39,7 +33,11 @@ export default function AddPage() {
       noError = false
     }
     if (noError) {
-      setProg(p => p + 1)
+      if(prog + 1 >= files.length){
+        navigate(-1)
+      }else{
+        setProg(p => p + 1)
+      }
     }
   }
 
