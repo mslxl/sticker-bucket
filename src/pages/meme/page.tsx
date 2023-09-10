@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { collectTag } from '../../model/meme'
 import TagShowcase from '../../component/TagShowcase'
 import Image from '../../component/Image'
+import { AnimatePresence, motion } from 'framer-motion'
 
 export default function MemePreviewPage() {
   const value = useLoaderData() as MemeLoadValue
@@ -17,50 +18,57 @@ export default function MemePreviewPage() {
   const navigate = useNavigate()
 
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <AppBar position='static'>
-        <Toolbar>
-          <IconButton
-            onClick={() => history.back()}
-            size='large'
-            edge='start'
-            color='inherit'
-            sx={{ mr: 2 }}>
-            <BackIcon />
-          </IconButton>
-          <Typography variant='h6' component="div" sx={{ flexGrow: 1 }}>
-            {value.meme.name}
-          </Typography>
-        </Toolbar>
-      </AppBar>
-      <CssBaseline />
-      <Container>
-        <Card variant='outlined'>
-          <CardContent sx={{ display: 'flex' }}>
-            {
-              value.meme.ty == 'image' ? (
-                <Image src={tauri.convertFileSrc(value.meme.path)} />
-              ) : (
-                <Typography
-                  variant='body1'>
-                  {value.meme.description}
-                </Typography>
-              )
-            }
-            <TagShowcase tags={tagM} />
-          </CardContent>
-          <CardActions>
-            <Button size='small'>Fav</Button>
-            <Button size='small'>Copy</Button>
-            <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>Edit</Button>
-            <Button size='small'>Extend</Button>
+    <AnimatePresence mode='wait'>
+      <Box sx={{ flexGrow: 1 }} key='preview'>
+        <AppBar position='static'>
+          <Toolbar>
+            <IconButton
+              onClick={() => history.back()}
+              size='large'
+              edge='start'
+              color='inherit'
+              sx={{ mr: 2 }}>
+              <BackIcon />
+            </IconButton>
+            <Typography variant='h6' component="div" sx={{ flexGrow: 1 }}>
+              {value.meme.name}
+            </Typography>
+          </Toolbar>
+        </AppBar>
+        <CssBaseline />
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: '100%' }}
+          exit={{ x: window.innerWidth }}>
+          <Container>
+            <Card variant='outlined'>
+              <CardContent sx={{ display: 'flex' }}>
+                {
+                  value.meme.ty == 'image' ? (
+                    <Image src={tauri.convertFileSrc(value.meme.path)} />
+                  ) : (
+                    <Typography
+                      variant='body1'>
+                      {value.meme.description}
+                    </Typography>
+                  )
+                }
+                <TagShowcase tags={tagM} />
+              </CardContent>
+              <CardActions>
+                <Button size='small'>Fav</Button>
+                <Button size='small'>Copy</Button>
+                <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>Edit</Button>
+                <Button size='small'>Extend</Button>
+              </CardActions>
+            </Card>
 
-          </CardActions>
-        </Card>
+          </Container>
+        </motion.div>
 
-      </Container>
 
-    </Box>
+      </Box>
+    </AnimatePresence>
   )
 
 }
