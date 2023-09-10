@@ -4,18 +4,26 @@ import { useDocumentTitle } from '../../libs/native/windows'
 import { AppBar, Box, Button, Card, CardActions, CardContent, Container, CssBaseline, IconButton, Toolbar, Typography } from '@mui/material'
 import { ArrowBack as BackIcon } from '@mui/icons-material'
 import { tauri } from '@tauri-apps/api'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { collectTag } from '../../model/meme'
 import TagShowcase from '../../component/TagShowcase'
 import Image from '../../component/Image'
 import { AnimatePresence, motion } from 'framer-motion'
 
+import { Favorite as FavIcon, FavoriteBorder as FavOutlineIcon } from '@mui/icons-material'
+import { setMemeFav } from '../../libs/native/db'
+
 export default function MemePreviewPage() {
-  const value = useLoaderData() as MemeLoadValue
+  const [value, setValue] = useState(useLoaderData() as MemeLoadValue)
 
   useDocumentTitle(value.meme.name)
   const tagM = useMemo(() => collectTag(value.tags), [value.tags])
   const navigate = useNavigate()
+
+  function toggleFav(){
+    setMemeFav(value.id, !value.meme.fav)
+    setValue((v)=>({...v, meme: {...v.meme, fav: !v.meme.fav}}))
+  }
 
   return (
     <AnimatePresence mode='wait'>
@@ -45,7 +53,7 @@ export default function MemePreviewPage() {
               <CardContent sx={{ display: 'flex' }}>
                 {
                   value.meme.ty == 'image' ? (
-                    <Image src={tauri.convertFileSrc(value.meme.path)} />
+                    <Image src={tauri.convertFileSrc(value.meme.path)} sx={{ maxHeight: '50%' }} />
                   ) : (
                     <Typography
                       variant='body1'>
@@ -56,10 +64,10 @@ export default function MemePreviewPage() {
                 <TagShowcase tags={tagM} />
               </CardContent>
               <CardActions>
-                <Button size='small'>Fav</Button>
                 <Button size='small'>Copy</Button>
                 <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>Edit</Button>
                 <Button size='small'>Extend</Button>
+                <Button size='small' variant='outlined' onClick={toggleFav}>{value.meme.fav ? <FavIcon /> : <FavOutlineIcon />}&nbsp;Fav</Button>
               </CardActions>
             </Card>
 

@@ -44,6 +44,8 @@ fn main() {
             meme::get_tags_related,
             meme::delete_meme_by_id,
             meme::trash_meme_by_id,
+            meme::set_meme_trash,
+            meme::set_meme_fav,
             db::open_storage,
             db::get_storage,
             db::is_storage_available
