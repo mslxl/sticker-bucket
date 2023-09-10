@@ -141,13 +141,10 @@ pub async fn update_meme_record(
         .map(|t| make_tag(&conn, &t.key, &t.value))
         .collect::<Result<Vec<i64>, String>>()?;
 
-    conn.execute("UPDATE meme SET name = ?1, description = ?2, fav = ?3, pkg_id = ?4 WHERE id = ?5", (
-        item.name,
-        item.description,
-        item.fav,
-        item.pkg_id,
-        meme_id
-    ))
+    conn.execute(
+        "UPDATE meme SET name = ?1, description = ?2, fav = ?3, pkg_id = ?4 WHERE id = ?5",
+        (item.name, item.description, item.fav, item.pkg_id, meme_id),
+    )
     .map_err(|e| e.to_string())?;
 
     conn.execute("DELETE FROM meme_tag WHERE meme_id = ?1", [meme_id])
@@ -182,7 +179,7 @@ pub async fn search_meme(
     ));
 
     println!("{}", sql_stmt.replace("\n", "").replace("  ", " "));
-    let mut query = state.conn.prepare(&sql_stmt).map_err(|e|e.to_string())?;
+    let mut query = state.conn.prepare(&sql_stmt).map_err(|e| e.to_string())?;
     let result = query
         .query_map([], |row| {
             let hash: String = row.get("hash").unwrap();
@@ -246,9 +243,11 @@ pub async fn delete_meme_by_id(
 ) -> Result<(), String> {
     let mut guard = state.state.lock().await;
     let state = guard.as_mut().unwrap();
-    let conn = state.conn.transaction().map_err(|e|e.to_string())?;
-    conn.execute("DELETE FROM meme_tag WHERE meme_id = ?1", [id]).map_err(|e|e.to_string())?;
-    conn.execute("DELETE FROM meme WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
+    let conn = state.conn.transaction().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM meme_tag WHERE meme_id = ?1", [id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM meme WHERE id = ?1", [id])
+        .map_err(|e| e.to_string())?;
     conn.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -257,12 +256,13 @@ pub async fn delete_meme_by_id(
 pub async fn trash_meme_by_id(
     state: tauri::State<'_, MemeDatabaseState>,
     id: i64,
-    trash: bool
+    trash: bool,
 ) -> Result<(), String> {
     let mut guard = state.state.lock().await;
     let state = guard.as_mut().unwrap();
-    let conn = state.conn.transaction().map_err(|e|e.to_string())?;
-    conn.execute("UPDATE meme SET trash = ?1 WHERE id = ?2", (trash, id)).map_err(|e| e.to_string())?;
+    let conn = state.conn.transaction().map_err(|e| e.to_string())?;
+    conn.execute("UPDATE meme SET trash = ?1 WHERE id = ?2", (trash, id))
+        .map_err(|e| e.to_string())?;
     conn.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -414,4 +414,34 @@ pub async fn get_tags_related(
         .collect::<Vec<TagFreq>>();
     freq.sort_by(|l, r| u32::partial_cmp(&r.freq, &l.freq).unwrap());
     Ok(freq)
+}
+
+#[tauri::command]
+pub async fn set_meme_fav(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i32,
+    fav: bool,
+) -> Result<(), String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+    state
+        .conn
+        .execute("UPDATE meme SET fav = ?1 WHERE id = ?2", (fav, id))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_meme_trash(
+    state: tauri::State<'_, MemeDatabaseState>,
+    id: i32,
+    trash: bool,
+) -> Result<(), String> {
+    let guard = state.state.lock().await;
+    let state = guard.as_ref().unwrap();
+    state
+        .conn
+        .execute("UPDATE meme SET trash = ?1 WHERE id = ?2", (trash, id))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

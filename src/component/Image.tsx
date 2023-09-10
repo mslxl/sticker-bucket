@@ -1,13 +1,15 @@
-import { Container } from '@mui/material'
+import { Container, SxProps, Theme } from '@mui/material'
 
 export interface ImageProps {
   src: string
+  sx?:  SxProps<Theme>
   onLoad?: ()=>void
 }
-export default function Image({ src, onLoad }: ImageProps) {
+export default function Image({ src, onLoad, sx }: ImageProps) {
   return (
     <Container
       sx={{
+        ...sx,
         width: '100%',
       }}
     >

@@ -84,3 +84,10 @@ export async function getTagsRelated(tags: Tag[]): Promise<TagFreq[]>{
   if(R.isEmpty(tags)) return []
   return invoke<TagFreq[]>('get_tags_related', {tags: tags})
 }
+
+export async function setMemeFav(id: number, fav:boolean): Promise<void>{
+  return invoke('set_meme_fav', {id, fav})
+}
+export async function setMemeTrash(id:number, trash: boolean): Promise<void>{
+  return invoke('set_meme_trash', {id, trash})
+}
