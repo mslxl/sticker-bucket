@@ -5,6 +5,7 @@ import { Tag, collectTag } from '../model/meme'
 import { Box, TextField, IconButton, Grid, Stack, Paper, Snackbar, Alert, Autocomplete, CircularProgress, List, ListItem, ListItemButton, ListItemText } from '@mui/material'
 import { KeyboardReturn as ReturnIcon } from '@mui/icons-material'
 import TagShowcase from './TagShowcase'
+import { useTranslation } from 'react-i18next'
 
 export interface TagEditorProp {
   defaultValue?: Tag[]
@@ -19,6 +20,7 @@ export interface TagEditorRef {
   toggleLock(name: string, value: string): void,
 }
 const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onChange }, ref) => {
+  const {t} = useTranslation()
   const [snackbarOpen, setSnackbarOpen] = useState(false)
   const [snackbarMsg, setSnackbarMsg] = useState('')
   const closeSnackbar = () => setSnackbarOpen(false)
@@ -70,7 +72,7 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
     const result = addTag(key, value)
     setTextInputTag('')
     if (!result) {
-      openSnackbar('Tag already exists!')
+      openSnackbar(t('Tag already exists'))
     } 
   }
 
@@ -170,7 +172,7 @@ const TagEditor = forwardRef<TagEditorRef, TagEditorProp>(({ defaultValue, onCha
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label='Tag'
+                    label={t('Tag')}
                     variant='filled'
                     InputProps={{
                       ...params.InputProps,

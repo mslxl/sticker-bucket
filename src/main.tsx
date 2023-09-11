@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 
 import { Suspense } from 'react'
@@ -10,14 +10,21 @@ import LoadingPage from './pages/loading/page'
 import './global.scss'
 import { ThemeProvider, createTheme } from '@mui/material'
 import { useSettings } from './store/settings'
+import { useTranslation } from 'react-i18next'
 
 function Root() {
-  const themeName = useSettings((settings)=>settings.theme) as 'light' | 'dark'
+  const themeName = useSettings((settings) => settings.theme) as 'light' | 'dark'
   const theme = createTheme({
     palette: {
       mode: themeName,
     },
   })
+
+  const lang = useSettings(s => s.language)
+  const { i18n } = useTranslation()
+  useEffect(() => {
+    i18n.changeLanguage(lang).catch((e) => console.error(e))
+  }, [lang])
 
   return (
     <ThemeProvider theme={theme}>

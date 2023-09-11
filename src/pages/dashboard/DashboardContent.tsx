@@ -8,6 +8,7 @@ import { useDocumentTitle } from '../../libs/native/windows'
 import MemeList from '../../component/MemeList'
 import { useEffect, useState, useCallback } from 'react'
 import { SearchResponse } from '../../libs/search'
+import { useTranslation } from 'react-i18next'
 
 export interface DashboardContent {
   initialSearchResponse: SearchResponse
@@ -15,6 +16,7 @@ export interface DashboardContent {
 
 export default function DashboardContent(props: DashboardContent) {
   const [response, setResponse] = useState(props.initialSearchResponse)
+  const { t } = useTranslation()
 
   useEffect(() => {
     setResponse(props.initialSearchResponse)
@@ -42,18 +44,18 @@ export default function DashboardContent(props: DashboardContent) {
         loadNextMeme={loadNextResponseChunk} />
 
       <SpeedDial
-        ariaLabel='Add Meme'
+        ariaLabel={t('Add Sticky')}
         sx={{ position: 'fixed', bottom: 16, right: 16 }}
         icon={<SpeedDialIcon />}>
         <SpeedDialAction
-          key="local"
+          key='local'
           icon={<ComputerIcon />}
-          tooltipTitle="Local Image Source"
+          tooltipTitle={t('Local Image Source')}
           onClick={() => navigate('/add/image')} />
         <SpeedDialAction
-          key="text"
+          key='text'
           icon={<TextIcon />}
-          tooltipTitle="Local Text Source"
+          tooltipTitle={t('Local Text Source')}
           onClick={() => navigate('/add/text')} />
       </SpeedDial>
     </>

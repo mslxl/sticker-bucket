@@ -6,14 +6,16 @@ import MemeEditor from '../../../component/MemeEditor'
 import { useState } from 'react'
 import { Meme } from '../../../model/meme'
 import { addMemeRecord } from '../../../libs/native/db'
+import { useTranslation } from 'react-i18next'
 
 export default function AddPage() {
   const { files } = useLoaderData() as { files: string[] }
+  const { t } = useTranslation()
 
   const multifile = files.length != 1
   const [prog, setProg] = useState(0)
 
-  useDocumentTitle(`Add image (${prog + 1}/${files.length})`)
+  useDocumentTitle(t('Add Image Progress', { index: prog + 1, length: files.length }))
 
   const navigate = useNavigate()
 
@@ -33,9 +35,9 @@ export default function AddPage() {
       noError = false
     }
     if (noError) {
-      if(prog + 1 >= files.length){
+      if (prog + 1 >= files.length) {
         navigate(-1)
-      }else{
+      } else {
         setProg(p => p + 1)
       }
     }

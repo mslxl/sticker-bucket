@@ -12,8 +12,10 @@ import { AnimatePresence, motion } from 'framer-motion'
 
 import { Favorite as FavIcon, FavoriteBorder as FavOutlineIcon } from '@mui/icons-material'
 import { setMemeFav } from '../../libs/native/db'
+import { useTranslation } from 'react-i18next'
 
 export default function MemePreviewPage() {
+  const {t} = useTranslation()
   const [value, setValue] = useState(useLoaderData() as MemeLoadValue)
 
   useDocumentTitle(value.meme.name)
@@ -64,10 +66,10 @@ export default function MemePreviewPage() {
                 <TagShowcase tags={tagM} />
               </CardContent>
               <CardActions>
-                <Button size='small'>Copy</Button>
-                <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>Edit</Button>
-                <Button size='small'>Extend</Button>
-                <Button size='small' variant='outlined' onClick={toggleFav}>{value.meme.fav ? <FavIcon /> : <FavOutlineIcon />}&nbsp;Fav</Button>
+                <Button size='small'>{t('Copy Image')}</Button>
+                <Button size='small' onClick={() => value.meme.ty == 'image' ? navigate(`/edit/image/${value.id}`) : navigate(`/edit/text/${value.id}`)}>{t('Edit')}</Button>
+                <Button size='small'>{t('Extend Image')}</Button>
+                <Button size='small' variant='outlined' onClick={toggleFav}>{value.meme.fav ? <FavIcon /> : <FavOutlineIcon />}&nbsp;{t('Favorite')}</Button>
               </CardActions>
             </Card>
 

@@ -1,7 +1,9 @@
 import { Box, AppBar, Toolbar, IconButton, Typography, CssBaseline } from '@mui/material'
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material'
 import { Outlet } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 export default function AddLayout() {
+  const { t } = useTranslation()
   return (
     <Box
       sx={{
@@ -25,7 +27,7 @@ export default function AddLayout() {
             noWrap
             component="div"
             sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}>
-            Add Meme
+            {t('Add Sticky')}
           </Typography>
         </Toolbar>
       </AppBar>
