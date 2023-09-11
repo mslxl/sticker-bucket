@@ -64,6 +64,15 @@
         "width": 800,
         "height": 600
       }
-    ]
+    ],
+    "updater": {
+      "active": false,
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MDk0MzU4NkIzODBBNzYKUldSMkNqaHJXRU1KbHlHbXEzbmNSeDBrYjJXRlhNa3FxTUJwNWVYVU9xN3hvQmRXMnpCZURlb2gK",
+      "windows": {
+        "installMode": "passive",
+        "installerArgs": []
+      }
+    }
   }
 }
