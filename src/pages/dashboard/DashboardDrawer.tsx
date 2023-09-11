@@ -11,6 +11,7 @@ import {
   AllInbox as AllIcon,
   Favorite as FavoriteIcon,
   Delete as DeleteIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 
@@ -97,9 +98,9 @@ function DrawerItemButton({ title, open, children, onClick }: DrawerItemButtonPr
   )
 }
 
-export interface DashboardDrawerProps{
+export interface DashboardDrawerProps {
   open: boolean
-  onOpenChange: (value: boolean)=>void
+  onOpenChange: (value: boolean) => void
 }
 
 export default function DashboardDrawer(props: DashboardDrawerProps) {
@@ -108,7 +109,7 @@ export default function DashboardDrawer(props: DashboardDrawerProps) {
   return (
     <Drawer variant='permanent' open={props.open}>
       <DrawerHeader>
-        <IconButton onClick={()=>props.onOpenChange && props.onOpenChange(!props.open)}>
+        <IconButton onClick={() => props.onOpenChange && props.onOpenChange(!props.open)}>
           {theme.direction === 'rtl' ? <ChevronRightIcon /> : <ChevronLeftIcon />}
         </IconButton>
       </DrawerHeader>
@@ -135,8 +136,16 @@ export default function DashboardDrawer(props: DashboardDrawerProps) {
           open={props.open}>
           <DeleteIcon />
         </DrawerItemButton>
+
       </List>
       <Divider />
+      <div css={{ flex: 1 }} />
+      <DrawerItemButton
+        title='Settings'
+        onClick={() => { navgiate('/settings') }}
+        open={props.open}>
+        <SettingsIcon />
+      </DrawerItemButton>
     </Drawer>
   )
 }

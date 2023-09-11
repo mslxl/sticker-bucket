@@ -6,6 +6,7 @@ export const useSettings = create(
   persist(
     combine(
       {
+        theme: 'light',
         language: 'en_US'
       },
       (set) => ({

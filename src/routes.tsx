@@ -12,12 +12,15 @@ import AddImagePageLoader from './pages/add/image/loader'
 const AddTextPage = lazy(() => import('./pages/add/text/page'))
 
 const EditLayout = lazy(() => import('./pages/edit/layout'))
-const EditImagePage = lazy(()=>import('./pages/edit/image/page'))
+const EditImagePage = lazy(() => import('./pages/edit/image/page'))
 import EditPageLoader from './pages/edit/loader'
-const EditTextPage = lazy(()=>import('./pages/edit/image/page'))
+const EditTextPage = lazy(() => import('./pages/edit/image/page'))
 
-const MemePreviewPage = lazy(()=>import('./pages/meme/page'))
+const MemePreviewPage = lazy(() => import('./pages/meme/page'))
 import MemePreivewPageLoader from './pages/meme/loader'
+
+const SettingsLayout = lazy(() => import('./pages/settings/layout'))
+const SettingsPage = lazy(() => import('./pages/settings/page'))
 
 const routes = createBrowserRouter([
   {
@@ -85,7 +88,16 @@ const routes = createBrowserRouter([
         loader: EditPageLoader
       }
     ]
-
+  },
+  {
+    path: '/settings',
+    element: <SettingsLayout />,
+    children: [
+      {
+        path: '/settings',
+        element: <SettingsPage />
+      }
+    ]
   }
 ])
 
