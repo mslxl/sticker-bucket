@@ -1,17 +1,17 @@
-import i18n from "i18next"
-import { initReactI18next } from "react-i18next"
+import i18n from 'i18next'
+import { initReactI18next } from 'react-i18next'
 
-import lngEn from "./en"
+import lngEnUS from './en_US'
+import lngZhCN from './zh_CN'
 
 i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en:{
-        translation: lngEn
-      }
+      en_US: { translation: lngEnUS },
+      zh_CN: { translation: lngZhCN },
     },
-    fallbackLng: "en",
+    fallbackLng: 'en_US',
     interpolation: {
       escapeValue: false
     }

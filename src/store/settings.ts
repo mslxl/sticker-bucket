@@ -10,8 +10,11 @@ export const useSettings = create(
         language: 'en_US'
       },
       (set) => ({
-        setLanguage(lang: 'en_US' | 'zh_CN' | 'epo'){
-          set(()=>({language: lang}))
+        setLanguage(lang: string) {
+          set(() => ({ language: lang }))
+        },
+        setTheme(theme: string) {
+          set({ theme })
         }
       })
     ),

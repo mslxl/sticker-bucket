@@ -14,6 +14,7 @@ import {
   Settings as SettingsIcon,
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 
 export const drawerWidth = 240
 
@@ -105,6 +106,8 @@ export interface DashboardDrawerProps {
 
 export default function DashboardDrawer(props: DashboardDrawerProps) {
   const navgiate = useNavigate()
+  const {t} = useTranslation()
+
   const theme = useTheme()
   return (
     <Drawer variant='permanent' open={props.open}>
@@ -117,21 +120,21 @@ export default function DashboardDrawer(props: DashboardDrawerProps) {
 
       <List>
         <DrawerItemButton
-          title='All'
+          title={t('All')}
           onClick={() => { navgiate('/dashboard') }}
           open={props.open}>
           <AllIcon />
         </DrawerItemButton>
 
         <DrawerItemButton
-          title='Favorites'
+          title={t('Favorites')}
           onClick={() => { navgiate('/dashboard/fav') }}
           open={props.open}>
           <FavoriteIcon />
         </DrawerItemButton>
 
         <DrawerItemButton
-          title='Trash'
+          title={t('Trash')}
           onClick={() => { navgiate('/dashboard/trash') }}
           open={props.open}>
           <DeleteIcon />
@@ -141,7 +144,7 @@ export default function DashboardDrawer(props: DashboardDrawerProps) {
       <Divider />
       <div css={{ flex: 1 }} />
       <DrawerItemButton
-        title='Settings'
+        title={t('Settings')}
         onClick={() => { navgiate('/settings') }}
         open={props.open}>
         <SettingsIcon />

@@ -15,9 +15,9 @@ export default async function loader() {
     return redirect('/dashboard')
   } else {
     if (typeof value == 'object') {
-      return {files: value}
+      return { files: value }
     } else {
-      return {files: [value]}
+      return { files: [value] }
     }
   }
 

@@ -6,12 +6,14 @@ import MemeEditor from '../../../component/MemeEditor'
 import { Meme } from '../../../model/meme'
 import { MemeLoadValue } from '../loader'
 import { updateMemeRecord } from '../../../libs/native/db'
+import { useTranslation } from 'react-i18next'
 
-export default function AddPage() {
+export default function EditPage() {
 
   const value = useLoaderData() as MemeLoadValue
+  const {t} = useTranslation()
 
-  useDocumentTitle(`Edit ${value.meme.name}`)
+  useDocumentTitle(t('Edit Name', {name: value.meme.name}))
 
   const meme: Meme = {
     ...value.meme,

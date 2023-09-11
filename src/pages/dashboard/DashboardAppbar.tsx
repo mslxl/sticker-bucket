@@ -9,6 +9,7 @@ import {
   Search as SearchIcon,
 } from '@mui/icons-material'
 import { drawerWidth } from './DashboardDrawer'
+import { useTranslation } from 'react-i18next'
 
 interface AppBarProps extends MuiAppBarProps {
   open?: boolean
@@ -84,6 +85,7 @@ export interface DashboardAppbarProps {
 }
 
 export default function DashboardAppbar(props: DashboardAppbarProps) {
+  const {t} = useTranslation()
   return (
     <AppBar position='fixed' open={props.drawerOpen}>
       <Toolbar>
@@ -112,7 +114,7 @@ export default function DashboardAppbar(props: DashboardAppbarProps) {
             <SearchIcon />
           </SearchIconWrapper>
           <StyledInputBase
-            placeholder='Search…'
+            placeholder={t('search...')}
             inputProps={{ 'aria-label': 'search' }}
             defaultValue={props.defaultSearchValue}
             onChange={(e) => props.onSearchValueChange && props.onSearchValueChange(e.target.value)}

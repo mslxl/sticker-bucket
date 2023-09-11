@@ -3,6 +3,7 @@ import { Done as DoneIcon } from '@mui/icons-material'
 import TagEditor, { TagEditorRef } from './TagEditor'
 import { Meme, Tag } from '../model/meme'
 import { useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export interface MemeTextEditorProp {
   defaultValue?: Meme
@@ -10,6 +11,7 @@ export interface MemeTextEditorProp {
   cancel?: () => void
 }
 export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditorProp) {
+  const {t} = useTranslation()
   const [meme, setMeme] = useState(defaultValue || {
     id: null,
     ty: 'text',
@@ -53,17 +55,17 @@ export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditor
     <>
       <Paper>
         <FormGroup>
-          <FormControlLabel control={<Checkbox defaultChecked onChange={e => handleMemeFav(e.target.checked)} />} label='Favourite' />
+          <FormControlLabel control={<Checkbox defaultChecked onChange={e => handleMemeFav(e.target.checked)} />} label={t('Favorite')} />
         </FormGroup>
         <TextField
           fullWidth
-          label='Name'
+          label={t('Name')}
           variant='filled'
           onChange={(e) => handleMemeName(e.target.value)} />
         <TextField
           fullWidth
           multiline
-          label='Content'
+          label={t('Content')}
           variant='filled'
           onChange={(e) => handleMemeContent(e.target.value)} />
         <TagEditor ref={tagEditor} onChange={handleMemeTags}/>
@@ -79,7 +81,7 @@ export default function MemeTextEditor({ defaultValue, confirm }: MemeTextEditor
           variant='extended'
           color='primary'>
           <DoneIcon sx={{ mr: 1 }} />
-          Done
+          {t('Done')}
         </Fab>
       </Box>
     </>

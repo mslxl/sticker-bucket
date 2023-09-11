@@ -9,6 +9,7 @@ import { useRef, useState } from 'react'
 import TagEditor, { TagEditorRef } from './TagEditor'
 import Image from './Image'
 import * as ocr from '../libs/ocr'
+import { useTranslation } from 'react-i18next'
 
 export interface MemeEditorProp {
   imageUrl: string
@@ -19,6 +20,8 @@ export interface MemeEditorProp {
 }
 
 export default function MemeEditor({ imageUrl, defaultValue, confirm, noDeleteCheckbox }: MemeEditorProp) {
+
+  const { t } = useTranslation()
 
   const [meme, setMeme] = useState(defaultValue || {
     id: null,
@@ -104,15 +107,15 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm, noDeleteCh
       <Paper sx={{ padding: 2 }}>
         <FormGroup>
           {
-            noDeleteCheckbox !== true ? <FormControlLabel control={<Checkbox onChange={e => deleteFileAfterAdd.current = e.target.checked} />} label='Delete file after add' />: null
+            noDeleteCheckbox !== true ? <FormControlLabel control={<Checkbox onChange={e => deleteFileAfterAdd.current = e.target.checked} />} label={t('Delete file after add')} /> : null
           }
-          <FormControlLabel control={<Checkbox defaultChecked={meme.fav} onChange={e => handleMemeFav(e.target.checked)} />} label='Favourite' />
+          <FormControlLabel control={<Checkbox defaultChecked={meme.fav} onChange={e => handleMemeFav(e.target.checked)} />} label={t('Favorite')} />
         </FormGroup>
-        <Button variant='contained' onClick={ocrText} sx={{ marginBottom: '12px' }}>OCR Name</Button>
+        <Button variant='contained' onClick={ocrText} sx={{ marginBottom: '12px' }}>{t('OCR Name')}</Button>
         <TextField
           fullWidth
           inputRef={refName}
-          label='Name'
+          label={t('Name')}
           variant='filled'
           InputLabelProps={{ shrink: true }}
           onChange={(e) => handleMemeName(e.target.value)}
@@ -120,7 +123,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm, noDeleteCh
         <TextField
           fullWidth
           multiline
-          label='Description'
+          label={t('Description')}
           variant='filled'
           onChange={(e) => handleMemeDescription(e.target.value)}
           defaultValue={meme.description} />
@@ -138,7 +141,7 @@ export default function MemeEditor({ imageUrl, defaultValue, confirm, noDeleteCh
           variant='extended'
           color='primary'>
           <DoneIcon sx={{ mr: 1 }} />
-          Done
+          {t('Done')}
         </Fab>
       </Box>
     </>
