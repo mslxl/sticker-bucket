@@ -15,7 +15,6 @@
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.14.3",
     "@mui/material": "^5.14.5",
-    "@tanstack/react-virtual": "3.0.0-beta.54",
     "@tauri-apps/api": "^1.4.0",
     "@techstark/opencv-js": "4.8.0-release.4",
     "@types/ramda": "^0.29.3",

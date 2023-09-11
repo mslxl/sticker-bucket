@@ -6,27 +6,29 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useDocumentTitle } from '../../libs/native/windows'
 import MemeList from '../../component/MemeList'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { SearchResponse } from '../../libs/search'
 
-export interface DashboardContent{
+export interface DashboardContent {
   initialSearchResponse: SearchResponse
-
 }
 
 export default function DashboardContent(props: DashboardContent) {
   const [response, setResponse] = useState(props.initialSearchResponse)
 
-  useEffect(()=>{
+  useEffect(() => {
     setResponse(props.initialSearchResponse)
   }, [props.initialSearchResponse])
 
-  async function loadNextResponseChunk(){
-    if(response.hasNext()){
+
+  const loadNextResponseChunk = useCallback(async () => {
+    if (response.hasNext()) {
       const nxt = await response.next()
-      setResponse(nxt)
+      if (nxt.index > response.index) {
+        setResponse(nxt)
+      }
     }
-  }
+  }, [response])
 
   const navigate = useNavigate()
 

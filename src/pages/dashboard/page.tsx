@@ -1,5 +1,5 @@
 import { path } from '@tauri-apps/api'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useDeferredValue } from 'react'
 
 import Box from '@mui/material/Box'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -26,14 +26,15 @@ export default function DashboardLayout() {
   const [searchContent, setSearchContent] = useState(params.search || '')
   const favMatch = useMatch('/dashboard/fav')
   const trashMatch = useMatch('/dashboard/trash')
+  const deferSearchContent = useDeferredValue(searchContent)
 
   const searchResponse = useMemo(() => {
     const builder = new SearchRequestBuilder()
-    builder.statement = searchContent
+    builder.statement = searchContent 
     builder.filterFav = favMatch != null
     builder.filterTrash = trashMatch != null
     return builder.build()
-  }, [searchContent, favMatch, trashMatch])
+  }, [deferSearchContent, favMatch, trashMatch])
 
   const location = useLocation()
 
