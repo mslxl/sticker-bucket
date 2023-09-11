@@ -1,6 +1,6 @@
 import { Box, Container, CssBaseline, Grid, Paper, Stack, useMediaQuery } from '@mui/material'
 import { Outlet } from 'react-router-dom'
-import IconImage from './icon.png'
+import IconImage from '../../../src-tauri/icons/128x128@2x.png'
 
 function Icon() {
   return (
