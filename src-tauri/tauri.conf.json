@@ -1,78 +1,44 @@
 {
+  "productName": "Sticker Bucket",
+  "version": "0.0.0",
+  "identifier": "com.mslxl.stickerbucket",
   "build": {
     "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": false
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "mmm",
-    "version": "0.0.1"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "window": {
-        "all": true
-      },
-      "dialog": {
-        "ask": false,
-        "confirm": false,
-        "message": false,
-        "open": true,
-        "save": false
-      },
-      "path": {
-        "all": true
-      },
-      "fs": {
-        "all": true
-      },
-      "protocol": {
-        "all": true,
-        "asset": true,
-        "assetScope": [
-          "**/*"
-        ]
-      }
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.mslxl.mmm",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ]
-    },
-    "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost"
-    },
+  "app": {
     "windows": [
       {
-        "fullscreen": false,
-        "resizable": true,
-        "title": "Meme Management",
+        "title": "Sticker Bucket",
         "width": 800,
         "height": 600
       }
     ],
-    "updater": {
-      "active": false,
-      "dialog": true,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk3MDk0MzU4NkIzODBBNzYKUldSMkNqaHJXRU1KbHlHbXEzbmNSeDBrYjJXRlhNa3FxTUJwNWVYVU9xN3hvQmRXMnpCZURlb2gK",
-      "windows": {
-        "installMode": "passive",
-        "installerArgs": []
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**", "**/*"]
       }
     }
+  },
+  "plugins": {
+    "fs":{
+      "enable": true,
+      "scope": ["**/*", "**", "/**/*"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }

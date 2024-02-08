@@ -1,42 +1,36 @@
 [package]
-name = "mmm"
+name = "stickerbucket"
 version = "0.0.0"
-description = "A Tauri App"
-authors = ["mslxl"]
-license = ""
-repository = ""
+description = "A simple manager of stickies"
+authors = ["mslxl <i@mslxl.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "1.4", features = [] }
+tauri-build = { version = "2.0.0-beta", features = [] }
 
 [dependencies]
-tauri = { version = "1.4", features = [ "fs-all",
-  "path-all",
-  "protocol-all",
-  "dialog-open",
-  "window-all",
-  "shell-open",
-] }
-rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "time"] }
-serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.32.0", features = [
-  "fs",
-  "io-std",
-  "io-util",
-  "net",
-  "sync",
-  "time",
-  "bytes",
-] }
-serde_json = "1.0"
-reqwest = "0.11.18"
-time = { version = "0.3.26", features = ["formatting", "macros", "serde"] }
-sha256 = "1.3.0"
+tauri = { version = "2.0.0-beta", features = ["protocol-asset"] }
+tauri-plugin-shell = "2.0.0-beta"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+# make sure hyper-tls(the dependences of reqwest with tls features) is installed
+# which will prevent compile if not installed
+reqwest = { version = "0.12.4", features = ["default-tls"] }
+tauri-plugin-store = "2.0.0-beta.6"
+tauri-plugin-dialog = "2.0.0-beta.7"
+tauri-plugin-fs = "2.0.0-beta.7"
+anyhow = "1.0.83"
+thiserror = "1.0.60"
+tokio = { version = "1.37.0", features = ["sync", "fs", "io-std", "io-util", "macros", "net"] }
+tauri-plugin-process = "2.0.0-beta.4"
+sha2 = "0.10.8"
+tauri-plugin-log = "2.0.0-beta.4"
+log = { version = "0.4.21", features = ["std", "serde"] }
+nom = { version = "7.1.3", features = ["alloc"] }
+itertools = "0.13.0"
+# ort = "1.16.3"
+opencv = "0.92.0"
 
-[features]
-# this feature is used for production builds or when `devPath` points to the filesystem
-# DO NOT REMOVE!!
-custom-protocol = ["tauri/custom-protocol"]

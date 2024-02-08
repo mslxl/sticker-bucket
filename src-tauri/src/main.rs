@@ -1,54 +1,58 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{path::PathBuf, fs};
+use std::path::PathBuf;
 
-use db::MemeDatabaseState;
+use cmd::library::{get_default_sticker_dir, StickerDBState};
+use tauri::Manager;
+use tauri_plugin_log::{Target, TargetKind};
 
-mod db;
-mod file;
-mod meme;
-mod zustand_storage;
-
-pub struct AppDir {
-    storage_dir: PathBuf,
-}
+pub mod cfg;
+pub mod cmd;
+pub mod library;
+pub mod search;
 
 fn main() {
-    let storage_dir = tauri::utils::platform::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    if !storage_dir.exists(){
-        fs::create_dir_all(&storage_dir).unwrap();
-    }
-
     tauri::Builder::default()
-        .manage(AppDir {
-            storage_dir: storage_dir.clone(),
+        .setup(|app| {
+            // Init sticker databasestate not managed for field state on command You must call `.manage()` before using this command
+            let dir = cfg::get_config_value(app.handle().clone(), "db.sticker-dir")
+                .map_err(|e| e.to_string())?
+                .map(|json| json.as_str().map(|s| s.to_owned()))
+                .flatten()
+                .or_else(|| get_default_sticker_dir(app.handle().clone()).ok())
+                .expect("fail to get sticker directory");
+            log::info!("Load sticker from {}", &dir);
+            let state = StickerDBState::new(PathBuf::from(dir)).map_err(|e| e.to_string())?;
+            app.manage(state);
+            Ok(())
         })
-        .manage(MemeDatabaseState::default())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .build(),
+        )
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            zustand_storage::zustand_set,
-            zustand_storage::zustand_get,
-            zustand_storage::zustand_del,
-            meme::add_meme_record,
-            meme::update_meme_record,
-            meme::search_meme,
-            meme::get_meme_by_id,
-            meme::get_tags_by_id,
-            meme::get_tag_keys_by_prefix,
-            meme::get_tags_by_prefix,
-            meme::get_tags_fuzzy,
-            meme::get_tags_related,
-            meme::delete_meme_by_id,
-            meme::trash_meme_by_id,
-            meme::set_meme_trash,
-            meme::set_meme_fav,
-            db::open_storage,
-            db::get_storage,
-            db::is_storage_available
+            cmd::library::get_default_sticker_dir,
+            cmd::library::create_pic_sticker,
+            cmd::library::create_text_sticker,
+            cmd::library::has_sticker_file,
+            cmd::library::search_package,
+            cmd::library::search_sticker,
+            cmd::library::count_search_sticker_page,
+            cmd::library::search_tag_ns,
+            cmd::library::search_tag_value,
+            cmd::library::is_path_blacklist,
+            cmd::library::blacklist_path,
+            cmd::library::get_sticker_by_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

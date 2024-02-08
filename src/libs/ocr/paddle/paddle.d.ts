@@ -1,1 +1,0 @@
-export declare async function recognize(imageUrl:string): Promise<string>
