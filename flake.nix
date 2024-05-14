@@ -18,7 +18,7 @@
         rust-toolchain = pkgs.fenix.complete;
 
         libraries = with pkgs;[
-          webkitgtk
+          webkitgtk_4_1
           gtk3
           cairo
           gdk-pixbuf
@@ -28,7 +28,7 @@
           librsvg
         ];
 
-        packages = with pkgs; [
+        buildInputs = with pkgs; [
             yarn
             (with rust-toolchain; [
                 cargo
@@ -45,16 +45,15 @@
             openssl
             glib
             gtk3
-            libsoup
-            webkitgtk
+            libsoup_3
+            webkitgtk_4_1
             librsvg
             libayatana-appindicator
         ];
-      in
-      {
+      in rec {
         # Executed by `nix build`
         packages.default = pkgs.mkYarnPackage rec {
-            inherit packages;
+            packages = buildInputs;
             nativeBuildInputs = with pkgs; [
                 makeWrapper
             ];
@@ -75,18 +74,24 @@
         };
 
         # Executed by `nix run`
-        apps.default = flake-utils.lib.mkApp {
-            drv = packages.default;
+        apps = rec {
+          stickybucket = {
+            type = "app";
+            program = "${packages.default}/bin/stickybucket";
+          };
+          default = stickybucket;
         };
 
         devShell = pkgs.mkShell {
-          buildInputs = packages;
+          inherit buildInputs;
 
           shellHook =
             ''
               export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
               export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
             '';
+
+            WEBKIT_DISABLE_COMPOSITING_MODE = "1";
             # Specify the rust-src path (many editors rely on this)
             RUST_SRC_PATH = "${rust-toolchain.rust-src}/lib/rustlib/src/rust/library";
         };
