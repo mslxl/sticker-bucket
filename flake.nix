@@ -1,5 +1,7 @@
 {
   inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -7,93 +9,85 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils, fenix }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-            inherit system;
-            overlays = [fenix.overlays.default];
-        };
-
-        rust-toolchain = pkgs.fenix.complete;
-
-        libraries = with pkgs;[
-          webkitgtk_4_1
-          gtk3
-          cairo
-          gdk-pixbuf
-          glib
-          dbus
-          openssl
-          librsvg
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    fenix,
+  }:
+    flake-utils.lib.eachDefaultSystem (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          fenix.overlays.default
+          (import ./nix/overlays)
         ];
+      };
 
-        buildInputs = with pkgs; [
-            yarn
-            (with rust-toolchain; [
-                cargo
-                rustc
-                rust-src
-                clippy
-                rustfmt
-            ])
+      rust-toolchain = pkgs.fenix.complete;
 
-            curl
-            wget
-            pkg-config
-            dbus
-            openssl
-            glib
-            gtk3
-            libsoup_3
-            webkitgtk_4_1
-            librsvg
-            libayatana-appindicator
-        ];
-      in rec {
-        # Executed by `nix build`
-        packages.default = pkgs.mkYarnPackage rec {
-            packages = buildInputs;
-            nativeBuildInputs = with pkgs; [
-                makeWrapper
-            ];
-            name = "stickybucket";
-            src = ./.;
+      libraries = with pkgs; [
+        webkitgtk_4_1
+        gtk3
+        cairo
+        gdk-pixbuf
+        glib
+        dbus
+        openssl
+        librsvg
+      ];
 
-            buildPhase = "yarn build";
+      buildInputs = with pkgs; [
+        nodePackages.pnpm
+        (with rust-toolchain; [
+          cargo
+          rustc
+          rust-src
+          clippy
+          rustfmt
+        ])
 
-            installPhase = ''
-                mkdir -p $out/bin
-                mkdir -p $out/lib
+        curl
+        wget
+        pkg-config
+        dbus
+        openssl
+        glib
+        gtk3
+        libsoup_3
+        webkitgtk_4_1
+        librsvg
+        libayatana-appindicator
+      ];
+    in rec {
+      # Executed by `nix build`
+      packages = rec {
+        stickybucket = pkgs.callPackage ./stickybucket.nix {};
+        default = stickybucket;
+      };
 
-                cp src-tauri/target/release/${name} $out/lib/${name}
-                makeWrapper $out/lib/${name} $out/bin/${name} \
-                    --argv0 "${name}" \
-                    --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath libraries}"
-            '';
+      # Executed by `nix run`
+      apps = rec {
+        stickybucket = {
+          type = "app";
+          program = "${packages.default}/bin/stickybucket";
         };
+        default = stickybucket;
+      };
 
-        # Executed by `nix run`
-        apps = rec {
-          stickybucket = {
-            type = "app";
-            program = "${packages.default}/bin/stickybucket";
-          };
-          default = stickybucket;
-        };
+      devShell = pkgs.mkShell {
+        inherit buildInputs;
 
-        devShell = pkgs.mkShell {
-          inherit buildInputs;
+        shellHook = ''
+          export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
+          export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
+        '';
 
-          shellHook =
-            ''
-              export LD_LIBRARY_PATH=${pkgs.lib.makeLibraryPath libraries}:$LD_LIBRARY_PATH
-              export XDG_DATA_DIRS=${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}:${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:$XDG_DATA_DIRS
-            '';
+        WEBKIT_DISABLE_COMPOSITING_MODE = "1";
+        # Specify the rust-src path (many editors rely on this)
+        RUST_SRC_PATH = "${rust-toolchain.rust-src}/lib/rustlib/src/rust/library";
+      };
 
-            WEBKIT_DISABLE_COMPOSITING_MODE = "1";
-            # Specify the rust-src path (many editors rely on this)
-            RUST_SRC_PATH = "${rust-toolchain.rust-src}/lib/rustlib/src/rust/library";
-        };
-      });
+      formatter = nixpkgs.legacyPackages.${system}.alejandra;
+    });
 }
