@@ -9,7 +9,7 @@
   fetchFromGitHub,
   cargo-tauri,
   wrapGAppsHook3,
-  nodePackages,
+  nodejs,
   pkg-config,
   rustc,
   gtk3,
@@ -46,7 +46,7 @@ stdenv.mkDerivation rec {
     nativeBuildInputs = [
       jq
       moreutils
-      nodePackages.pnpm
+      nodejs.pkgs.pnpm
       cacert
     ];
 
@@ -79,8 +79,7 @@ stdenv.mkDerivation rec {
     rustc
     cargo-tauri
     wrapGAppsHook3
-    nodePackages.pnpm
-    nodePackages.rollup
+    nodejs.pkgs.pnpm
     pkg-config
   ];
 
