@@ -1,5 +1,5 @@
 /node_modules/
 /.direnv/
 /.result/
-/result/
+/result
 /dist/
