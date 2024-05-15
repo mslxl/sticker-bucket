@@ -15,6 +15,7 @@ tauri = { version = "2.0.0-beta", features = [] }
 tauri-plugin-shell = "2.0.0-beta"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-sql = { version = "2.0.0-beta", features = ["sqlite"] }
 # make sure hyper-tls(the dependences of reqwest with tls features) is installed
 # which will prevent compile if not installed
 reqwest = { version = "0.12.4", features = ["default-tls"] }
