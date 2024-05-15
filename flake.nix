@@ -38,7 +38,9 @@
       ];
 
       buildInputs = with pkgs; [
-        nodePackages.pnpm
+        just
+        nodejs
+        nodejs.pkgs.pnpm
         (with rust-toolchain; [
           cargo
           rustc
