@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "path:default",
     "event:default",
@@ -12,6 +14,39 @@
     "resources:default",
     "menu:default",
     "tray:default",
-    "shell:allow-open"
+    "shell:allow-open",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "path:allow-join",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "**/*"
+        },
+        {
+          "path": "**"
+        },
+        {
+          "path": "/**/*"
+        }
+      ]
+    },
+    "fs:scope-app",
+    "fs:scope-applocaldata",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    "fs:allow-app-meta",
+    "fs:allow-app-meta-recursive",
+    "fs:allow-app-read",
+    "fs:allow-app-read-recursive",
+    "fs:allow-appcache-meta",
+    "fs:allow-appcache-meta-recursive",
+    "process:default",
+    "log:default"
   ]
 }

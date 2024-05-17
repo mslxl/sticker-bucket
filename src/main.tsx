@@ -1,12 +1,18 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
-import Router from '@/router'
+import { attachConsole } from "@tauri-apps/plugin-log";
 
-import "normalize.css"
-import '@/global.css'
+import "normalize.css";
+import "@/global.css";
+import { loadConst } from "./const";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <Router/>
-  </React.StrictMode>,
-);
+Promise.all([attachConsole(), loadConst]).then(() => {
+  const Router = lazy(() => import("@/router"));
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <Suspense>
+        <Router />
+      </Suspense>
+    </React.StrictMode>
+  );
+});

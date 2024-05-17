@@ -8,7 +8,8 @@
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
-  "app": {"windows": [
+  "app": {
+    "windows": [
       {
         "title": "Sticky Bucket",
         "width": 800,
@@ -16,7 +17,16 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["asset"]
+      }
+    }
+  },
+  "plugins": {
+    "fs":{
+      "scope": ["**/*", "**", "/**/*"]
     }
   },
   "bundle": {

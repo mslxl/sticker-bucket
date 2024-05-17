@@ -11,12 +11,22 @@ edition = "2021"
 tauri-build = { version = "2.0.0-beta", features = [] }
 
 [dependencies]
-tauri = { version = "2.0.0-beta", features = [] }
+tauri = { version = "2.0.0-beta", features = ["protocol-asset"] }
 tauri-plugin-shell = "2.0.0-beta"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-sql = { version = "2.0.0-beta", features = ["sqlite"] }
+rusqlite = { version = "0.31.0", features = ["bundled"] }
 # make sure hyper-tls(the dependences of reqwest with tls features) is installed
 # which will prevent compile if not installed
 reqwest = { version = "0.12.4", features = ["default-tls"] }
+tauri-plugin-store = "2.0.0-beta.6"
+tauri-plugin-dialog = "2.0.0-beta.7"
+tauri-plugin-fs = "2.0.0-beta.7"
+anyhow = "1.0.83"
+thiserror = "1.0.60"
+tokio = { version = "1.37.0", features = ["sync", "fs", "io-std", "io-util", "macros", "net"] }
+tauri-plugin-process = "2.0.0-beta.4"
+sha2 = "0.10.8"
+tauri-plugin-log = "2.0.0-beta.4"
+log = { version = "0.4.21", features = ["std", "serde"] }
 
