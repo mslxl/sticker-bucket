@@ -39,6 +39,8 @@
 
       buildInputs = with pkgs; [
         just
+
+        # Tauri
         nodejs
         nodejs.pkgs.pnpm
         (with rust-toolchain; [
@@ -60,6 +62,17 @@
         webkitgtk_4_1
         librsvg
         libayatana-appindicator
+
+        # Algorithm impl in CXX
+        cmake
+        (opencv.override (old: {enableGtk2 = true;}))
+
+        # OpenCV algorithm test
+        (python3.withPackages (ps: with ps;[
+          hy
+          numpy
+          (opencv4.override {enableGtk2 = true;})
+        ]))
       ];
     in rec {
       # Executed by `nix build`
