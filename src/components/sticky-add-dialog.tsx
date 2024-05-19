@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as dialog from "@tauri-apps/plugin-dialog";
 import { Button } from "./ui/button";
 import StickyEditor, { StickyEditorRef } from "./sticky-editor";
-import { info } from "@tauri-apps/plugin-log";
+import { error, info } from "@tauri-apps/plugin-log";
 import {
   AlertDialogCancel,
   AlertDialogHeader,
@@ -13,6 +13,8 @@ import { Tag } from "./tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
 import { createSticky, hasStickyFile } from "@/lib/cmd/library";
 import { unreachable } from "@/lib/sys";
+import { Checkbox } from "./ui/checkbox";
+import * as fs from "@tauri-apps/plugin-fs";
 
 interface StickyAddDialogProps {
   resolve: () => void;
@@ -26,6 +28,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
   const [pkg, setPkg] = useState("");
   const [fav, setFav] = useState(false);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [del, setDel] = useState(false);
 
   const dialogHandle = useDialog();
 
@@ -91,13 +94,28 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
           tags,
         })}`
       );
-      await createSticky(name, pkg, imagePath!, tags)
-        .then(resolve)
-        .catch((reason) => {
-          dialogHandle.message(reason, {
-            title: "Error",
-          });
+      try {
+        await createSticky(name, pkg, imagePath!, tags);
+        info("Add sticky successfully")
+      } catch (reason: any) {
+        error(reason)
+        dialogHandle.message(reason, {
+          title: "Error",
         });
+        return;
+      }
+      if (del) {
+        try {
+          info("Remove original file")
+          await fs.remove(imagePath!);
+        } catch (reason: any) {
+          error(reason)
+          dialogHandle.message(reason, {
+            title: "Warning",
+          });
+        }
+      }
+      resolve();
     })();
   }
 
@@ -115,6 +133,20 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
           </Button>
         </div>
       </AlertDialogHeader>
+
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="delete"
+          checked={del}
+          onCheckedChange={(v) => setDel(v == true)}
+        />
+        <label
+          htmlFor="delete"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+        >
+          Delete original file
+        </label>
+      </div>
       <StickyEditor
         ref={editorRef}
         name={name}

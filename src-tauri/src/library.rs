@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use itertools::Itertools;
 use log::info;
 use rusqlite::{OptionalExtension, Transaction};
 use sha2::{Digest, Sha256};
@@ -188,6 +187,7 @@ pub fn search_package(conn: &Transaction, keyword: &str) -> Result<Vec<String>, 
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StickyThumb {
+    id: i64,
     path: PathBuf,
     name: String,
     width: Option<i64>,
@@ -208,6 +208,7 @@ pub fn search_sticky(
     let res = stmt
         .query_and_then::<_, anyhow::Error, _, _>([], |row| {
             Ok(StickyThumb {
+                id: row.get("id")?,
                 path: state.locate_path(&row.get::<&str, String>("hash")?),
                 name: row.get("name")?,
                 width: row.get("width").ok(),

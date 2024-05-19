@@ -28,6 +28,7 @@ export const searchPackage = (keyword: string) =>
   invoke<string[]>("search_package", { keyword });
 
 export interface StickyThumb {
+  id: number;
   path: string;
   name: string;
   width?: number;
