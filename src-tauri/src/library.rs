@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use log::info;
-use rusqlite::{OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -170,7 +170,7 @@ pub fn cpy_to_library(
     Ok(dst.file_name().unwrap().to_str().unwrap().to_owned())
 }
 
-pub fn search_package(conn: &Transaction, keyword: &str) -> Result<Vec<String>, String> {
+pub fn search_package(conn: &Connection, keyword: &str) -> Result<Vec<String>, String> {
     let mut stmt = conn
         .prepare("SELECT name FROM package WHERE name LIKE ?1")
         .map_err(|e| e.to_string())?;
@@ -196,15 +196,15 @@ pub struct StickyThumb {
 
 pub fn search_sticky(
     state: &StickyDBState,
+    conn: &Connection,
     stmt: &str,
     page: i32,
 ) -> Result<Vec<StickyThumb>, String> {
-    let conn_guard = state.conn.try_lock().map_err(|e| e.to_string())?;
     info!("Search with: {}", &stmt);
     let parsed_stmt = parse_serach(stmt)?;
     let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, 50);
     info!("Statement: {}", &sql);
-    let mut stmt = conn_guard.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let res = stmt
         .query_and_then::<_, anyhow::Error, _, _>([], |row| {
             Ok(StickyThumb {
@@ -228,5 +228,51 @@ pub fn search_sticky(
     } else {
         info!("Result number: 0");
         Ok(Vec::new())
+    }
+}
+
+pub fn search_tag_ns(conn: &Connection, prefix: &str) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT(namespace) FROM tag WHERE namespace LIKE ?1 ORDER BY namespace")
+        .map_err(|e| e.to_string())?;
+    let items = stmt
+        .query_and_then([format!("{}%", prefix)], |row| row.get::<usize, String>(0))
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(value) = items {
+        let mut res = Vec::new();
+        for i in value {
+            res.push(i.map_err(|e| e.to_string())?);
+        }
+        Ok(res)
+    } else {
+        Ok(vec![])
+    }
+}
+
+pub fn search_tag_value(
+    conn: &Connection,
+    ns: &str,
+    value_prefix: &str,
+) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT(value) FROM tag WHERE namespace = ?1 AND value LIKE ?2 ORDER BY namespace")
+        .map_err(|e| e.to_string())?;
+    let items = stmt
+        .query_and_then((ns, format!("{}%", value_prefix)), |row| {
+            row.get::<usize, String>(0)
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+
+    if let Some(value) = items {
+        let mut res = Vec::new();
+        for i in value {
+            res.push(i.map_err(|e| e.to_string())?);
+        }
+        Ok(res)
+    } else {
+        Ok(vec![])
     }
 }

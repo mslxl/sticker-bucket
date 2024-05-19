@@ -8,8 +8,8 @@ use tauri_plugin_log::{Target, TargetKind};
 
 pub mod cfg;
 pub mod cmd;
-pub mod search;
 pub mod library;
+pub mod search;
 
 fn main() {
     tauri::Builder::default()
@@ -45,7 +45,9 @@ fn main() {
             cmd::library::create_sticky,
             cmd::library::has_sticky_file,
             cmd::library::search_package,
-            cmd::library::search_sticky
+            cmd::library::search_sticky,
+            cmd::library::search_tag_ns,
+            cmd::library::search_tag_value
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,11 +5,14 @@ import {
   concat,
   filter,
   find,
+  identical,
+  identity,
+  map,
+  negate,
   remove,
   uniq,
 } from "lodash/fp";
 import clsx from "clsx";
-import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import * as z from "zod";
 import { ZOD_TAG } from "@/const";
@@ -22,6 +25,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import AutoCompleteInput from "./ui/autocomplete";
+import { searchTagNamespace, searchTagValue } from "@/lib/cmd/library";
 
 const schema = z.object({
   value: ZOD_TAG,
@@ -80,6 +85,21 @@ export default function TagEditorA({
     return find(tagEq(tag) as any, lockedTag ?? []) != undefined;
   }
 
+  async function suggestFullTag(inp: string): Promise<string[]> {
+    if (inp.indexOf(":") == -1) {
+      return map((ns) => ns + ":", await searchTagNamespace(inp));
+    } else {
+      const [namespace, valuePrefix] = inp.split(":", 2);
+      return filter(
+        negate(identical(inp)),
+        map(
+          (value) => `${namespace}:${value}`,
+          await searchTagValue(namespace, valuePrefix)
+        )
+      );
+    }
+  }
+
   return (
     <div className={clsx("", className)}>
       <Form {...form}>
@@ -92,7 +112,9 @@ export default function TagEditorA({
                 <div className="relative ml-auto flex-1 md:grow-0 flex gap-1">
                   <LuSticker className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <FormControl>
-                    <Input
+                    <AutoCompleteInput
+                      suggest={suggestFullTag}
+                      keyOf={identity}
                       type="search"
                       placeholder="Type tag to append..."
                       className="flex-1 rounded-lg bg-background pl-8"

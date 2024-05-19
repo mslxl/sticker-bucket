@@ -43,3 +43,11 @@ export const searchSticky = (
     stmt,
     page,
   });
+
+export const searchTagNamespace = (prefix: string): Promise<string[]> =>
+  invoke("search_tag_ns", { prefix });
+
+export const searchTagValue = (
+  ns: string,
+  valuePrefix: string
+): Promise<string[]> => invoke("search_tag_value", { ns, valuePrefix });
