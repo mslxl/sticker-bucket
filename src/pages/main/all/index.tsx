@@ -1,3 +1,4 @@
+import StickyList from "@/components/sticky-list";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -8,9 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { StickyThumb, searchSticky } from "@/lib/cmd/library";
 import { popModalAtom, pushDialogAtom } from "@/store/modal";
 import { useSetAtom } from "jotai";
-import { lazy } from "react";
+import { lazy, useEffect, useRef, useState } from "react";
 import {
   LuImagePlus,
   LuMenu,
@@ -28,6 +30,29 @@ export default function AllPage() {
     );
   }
 
+  const emitSearchCounter = useRef(0);
+  const receivedSearchCounter = useRef(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [page, setPage] = useState(0);
+
+  const [stickyData, setStickyData] = useState<StickyThumb[]>([]);
+
+  useEffect(() => {
+    emitSearchCounter.current++;
+    const taskId = emitSearchCounter.current;
+    (async () => {
+      if (taskId > receivedSearchCounter.current) {
+        receivedSearchCounter.current = taskId;
+        const sticky = await searchSticky(searchInput, page);
+        if (sticky) {
+          setStickyData(sticky);
+        }else{
+          console.log("empty?")
+        }
+      }
+    })();
+  }, [page, searchInput]);
+
   return (
     <div>
       <div className="flex items-center p-2 h-16 border-b space-x-1">
@@ -37,6 +62,8 @@ export default function AllPage() {
             type="search"
             placeholder="Search..."
             className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[336px]"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
         <DropdownMenu>
@@ -64,6 +91,7 @@ export default function AllPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <StickyList stickies={stickyData} page={page} onPageChange={setPage}/>
     </div>
   );
 }

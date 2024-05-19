@@ -11,6 +11,8 @@ import {
 import { LuCheck, LuX } from "react-icons/lu";
 import { Tag } from "./tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
+import { createSticky, hasStickyFile } from "@/lib/cmd/library";
+import { unreachable } from "@/lib/sys";
 
 interface StickyAddDialogProps {
   resolve: () => void;
@@ -25,10 +27,9 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
   const [fav, setFav] = useState(false);
   const [tags, setTags] = useState<Tag[]>([]);
 
-  const dialogHandle = useDialog()
+  const dialogHandle = useDialog();
 
   const editorRef = useRef<StickyEditorRef>(null);
-
 
   useEffect(() => {
     if (!dialogVisible.current) {
@@ -51,34 +52,53 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
     }
   }, []);
 
-  function valid():boolean{
-    if(name.length == 0){
-      dialogHandle.message("Name must not be empty")
-      return false
+  function valid(): boolean {
+    if (!imagePath) {
+      unreachable();
     }
-    if(pkg.trim().length == 0){
-      dialogHandle.message("Package must not be empty")
-      return false
+    if (name.length == 0) {
+      dialogHandle.message("Name must not be empty");
+      return false;
     }
-    return true
+    if (pkg.trim().length == 0) {
+      dialogHandle.message("Package must not be empty");
+      return false;
+    }
+    return true;
   }
 
   function confirm() {
-    info(
-      `Add sticky ${JSON.stringify({
-        imagePath,
-        name,
-        pkg,
-        fav,
-        tags,
-      })}`
-    );
-    ;(async()=>{
-      if(!await valid()){
-        return
+    (async () => {
+      if (!(await valid())) {
+        return;
       }
-      editorRef.current?.reset();
-    })()
+      if (await hasStickyFile(imagePath!)) {
+        const cont = await dialogHandle.ask(
+          "Sticky file was included in library, continue to add it?",
+          {
+            title: "File Already Exist",
+            okLabel: "Continue",
+          }
+        );
+        if (!cont) return;
+      }
+      info(
+        `Add sticky ${JSON.stringify({
+          imagePath,
+          name,
+          pkg,
+          fav,
+          tags,
+        })}`
+      );
+      await createSticky(name, pkg, imagePath!, tags)
+        .then(resolve)
+        .catch((reason) => {
+          dialogHandle.message(reason, {
+            title: "Error",
+          });
+        });
+    })();
   }
 
   return (

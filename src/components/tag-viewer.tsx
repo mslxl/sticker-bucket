@@ -25,6 +25,9 @@ export const tagEq = curryN(
   2,
   (lhs: Tag, rhs: Tag) => lhs.namespace == rhs.namespace && rhs.value == lhs.value
 );
+export const tagNe = curryN(2,
+  (lhs: Tag, rhs: Tag) => !tagEq(lhs, rhs)
+)
 
 export interface TagGroup {
   namespace: string;
