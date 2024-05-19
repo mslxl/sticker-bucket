@@ -83,9 +83,9 @@ pub async fn search_package(
     state: tauri::State<'_, StickyDBState>,
     keyword: String,
 ) -> Result<Vec<String>, String> {
-    let mut guard = state.conn.lock().await;
-    let transaction = guard.transaction().map_err(|e| e.to_string())?;
-    library::search_package(&transaction, &keyword)
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::search_package(conn, &keyword)
 }
 
 #[tauri::command]
@@ -94,5 +94,28 @@ pub async fn search_sticky(
     stmt: String,
     page: i32,
 ) -> Result<Vec<StickyThumb>, String> {
-    library::search_sticky(&state, &stmt, page)
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::search_sticky(&state, conn, &stmt, page)
+}
+
+#[tauri::command]
+pub async fn search_tag_ns(
+    state: tauri::State<'_, StickyDBState>,
+    prefix: &str,
+) -> Result<Vec<String>, String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::search_tag_ns(conn, prefix)
+}
+
+#[tauri::command]
+pub async fn search_tag_value(
+    state: tauri::State<'_, StickyDBState>,
+    ns: &str,
+    value_prefix: &str,
+) -> Result<Vec<String>, String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::search_tag_value(conn, ns, value_prefix)
 }
