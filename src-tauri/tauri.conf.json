@@ -20,12 +20,13 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["asset"]
+        "scope": ["**", "**/*"]
       }
     }
   },
   "plugins": {
     "fs":{
+      "enable": true,
       "scope": ["**/*", "**", "/**/*"]
     }
   },

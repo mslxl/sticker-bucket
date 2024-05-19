@@ -28,7 +28,9 @@ create table sticky
     package     integer                            not null
         constraint sticky_package_id_fk
             references package,
-    sensor_id   text
+    sensor_id   TEXT,
+    width       integer  default -1                not null,
+    height      integer  default -1                not null
 );
 
 create index sticky_create_date_index
@@ -68,11 +70,20 @@ create table sticky_tag
             references sticky,
     tag    integer not null
         constraint tag_id_fk
-            references tag
+            references tag,
+    constraint sticky_tag_pk
+        primary key (tag, sticky)
 );
 
 create index tag_namespace_value_index
     on tag (namespace, value);
+
+create table version
+(
+    version_code integer not null
+        constraint version_pk
+            primary key
+);
 
 
 INSERT INTO package (id, name, description, author) VALUES (1, 'Inbox', null, null);

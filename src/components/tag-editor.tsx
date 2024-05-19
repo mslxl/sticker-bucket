@@ -1,5 +1,5 @@
 import { LuCheck, LuLock, LuSticker, LuX } from "react-icons/lu";
-import TagViewer, { Tag, TagViewerProps, tagEq } from "./tag-viewer";
+import TagViewer, { Tag, TagViewerProps, tagEq, tagNe } from "./tag-viewer";
 import { info } from "@tauri-apps/plugin-log";
 import {
   concat,
@@ -54,10 +54,10 @@ export default function TagEditorA({
 
   function removeTagItem(namespace: string, value: string) {
     info(`Remove tag item ${namespace}:${value}`);
-    onTagsChanged && onTagsChanged(filter(tagEq({ namespace, value }), tags));
+    onTagsChanged && onTagsChanged(filter(tagNe({ namespace, value }), tags));
   }
   function addTagItem(values: z.infer<typeof schema>) {
-    info(`Remove tag item ${values.value}`);
+    info(`Add tag item ${values.value}`);
     const [namespace, value] = values.value.split(":", 2);
     onTagsChanged && onTagsChanged(uniq(concat(tags, { namespace, value })));
     form.reset();
