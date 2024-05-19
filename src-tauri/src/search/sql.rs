@@ -141,6 +141,7 @@ fn build_sub_query_tages(tags: &Vec<ParsedTag>) -> Option<String> {
         }
     } else if let Some(second_cond) = none_of_cond {
         select_sticky.push_str(&second_cond);
+        select_sticky.push_str(" GROUP BY sticky.id");
     }
 
     Some(select_sticky)

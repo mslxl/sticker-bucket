@@ -9,10 +9,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { StickyThumb, searchSticky } from "@/lib/cmd/library";
 import { popModalAtom, pushDialogAtom } from "@/store/modal";
 import { useSetAtom } from "jotai";
-import { lazy, useEffect, useRef, useState } from "react";
+import { lazy, useState } from "react";
 import {
   LuImagePlus,
   LuMenu,
@@ -30,32 +29,12 @@ export default function AllPage() {
     );
   }
 
-  const emitSearchCounter = useRef(0);
-  const receivedSearchCounter = useRef(0);
   const [searchInput, setSearchInput] = useState("");
   const [page, setPage] = useState(0);
 
-  const [stickyData, setStickyData] = useState<StickyThumb[]>([]);
-
-  useEffect(() => {
-    emitSearchCounter.current++;
-    const taskId = emitSearchCounter.current;
-    (async () => {
-      if (taskId > receivedSearchCounter.current) {
-        receivedSearchCounter.current = taskId;
-        const sticky = await searchSticky(searchInput, page);
-        if (sticky) {
-          setStickyData(sticky);
-        }else{
-          console.log("empty?")
-        }
-      }
-    })();
-  }, [page, searchInput]);
-
   return (
-    <div>
-      <div className="flex items-center p-2 h-16 border-b space-x-1">
+    <div className="h-screen">
+      <nav className="flex items-center p-2 h-16 border-b bg-background">
         <div className="relative ml-auto flex-1 md:grow-0">
           <LuSearch className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -90,8 +69,13 @@ export default function AllPage() {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-      <StickyList stickies={stickyData} page={page} onPageChange={setPage}/>
+      </nav>
+      <StickyList
+        className="h-[calc(100%-4rem)] overflow-y-auto p-4"
+        stmt={searchInput}
+        page={page}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

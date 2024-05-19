@@ -68,11 +68,12 @@
         (opencv.override (old: {enableGtk2 = true;}))
 
         # OpenCV algorithm test
-        (python3.withPackages (ps: with ps;[
-          hy
-          numpy
-          (opencv4.override {enableGtk2 = true;})
-        ]))
+        (python3.withPackages (ps:
+          with ps; [
+            hy
+            numpy
+            (opencv4.override {enableGtk2 = true;})
+          ]))
       ];
     in rec {
       # Executed by `nix build`
