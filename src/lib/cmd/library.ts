@@ -3,20 +3,23 @@ import { invoke } from "@tauri-apps/api/core";
 export const getDefaultStickyDataDir = () =>
   invoke<string>("get_default_sticky_dir");
 
-export const createSticky = (
+export const createPictureSticky = (
   name: string,
   pkg: string,
   path: string,
   tags: Tag[],
   withExt: boolean = true
 ) =>
-  invoke<void>("create_sticky", {
+  invoke<void>("create_pic_sticky", {
     name,
     pkg,
     path,
     tags,
     withExt,
   });
+
+export const createTextSticky = (content: string, pkg: string, tags: Tag[]) =>
+  invoke<void>("create_text_sticky", { content, pkg, tags });
 
 export const hasStickyFile = (path: string, withExt: boolean = true) =>
   invoke<boolean>("has_sticky_file", {
@@ -27,12 +30,23 @@ export const hasStickyFile = (path: string, withExt: boolean = true) =>
 export const searchPackage = (keyword: string) =>
   invoke<string[]>("search_package", { keyword });
 
-export interface StickyThumb {
+export type StickyTY = "PIC" | "TEXT";
+
+export type StickyThumb = StickyText | StickyImg
+
+export interface StickyText {
+  id: number;
+  name: string;
+  ty: "TEXT";
+}
+
+export interface StickyImg {
   id: number;
   path: string;
   name: string;
   width?: number;
   height?: number;
+  ty: "PIC";
 }
 
 export const searchSticky = (

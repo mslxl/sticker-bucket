@@ -6,7 +6,6 @@ import { Toggle } from "./ui/toggle";
 import {
   Ref,
   forwardRef,
-  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -16,14 +15,7 @@ import { Tag } from "./tag-viewer";
 import TagEditor from "./tag-editor";
 import clsx from "clsx";
 import { info } from "@tauri-apps/plugin-log";
-import Combobox from "./ui/combobox";
-import { concat, map } from "lodash/fp";
-import { searchPackage } from "@/lib/cmd/library";
-
-interface PackageComboboxItem{
-  v: string,
-  label: string
-}
+import PackageCombobox from "./package-combobox";
 
 export interface StickyEditorRef {
   get lockName(): boolean;
@@ -33,7 +25,6 @@ export interface StickyEditorRef {
   get lockedTags(): Tag[];
   set lockedTags(value: Tag[]);
   nameRef: Ref<HTMLInputElement | null>;
-  pkgRef: Ref<HTMLInputElement | null>;
   reset: () => void;
 }
 
@@ -75,36 +66,9 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
     const [lockName, setLockName] = useState(false);
     const [lockPackage, setLockPackage] = useState(false);
     const [lockedTags, setLockedTags] = useState<Tag[]>([]);
-    const [pkgComboboxValue, setPkgComboboxValue] = useState<PackageComboboxItem>({
-      v: pkg ?? "Inbox",
-      label: pkg ?? "Inbox",
-    });
 
-    // make state sync with outside
-    useEffect(() => {
-      // not sync or not valid
-      if (pkg != pkgComboboxValue.v || pkg.length == 0) {
-        if (pkg && pkg.length != 0) {
-          // outside state is valid
-          // change state here
-          setPkgComboboxValue({
-            v: pkg,
-            label: pkg,
-          });
-        } else {
-          // outside state is not valid
-          // fallback to default
-          onPkgChanged && onPkgChanged("Inbox");
-          setPkgComboboxValue({
-            v: "Inbox",
-            label: "Inbox",
-          });
-        }
-      }
-    }, [pkg]);
 
     const nameRef = useRef<HTMLInputElement>(null);
-    const pkgRef = useRef<HTMLInputElement>(null);
 
     function reset() {
       info("reset sticky editor form");
@@ -112,8 +76,7 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
         nameRef.current.value = "";
         onNameChanged && onNameChanged("");
       }
-      if (!lockPackage && pkgRef.current) {
-        pkgRef.current.value = "";
+      if (!lockPackage) {
         onPkgChanged && onPkgChanged("");
       }
       onTagsChanged && onTagsChanged(lockedTags);
@@ -139,7 +102,6 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
         setLockedTags(value);
       },
       nameRef,
-      pkgRef,
       reset,
     }));
 
@@ -182,25 +144,7 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
               <div className="flex flex-col space-y-1.5">
                 <Label htmlFor="package">Package</Label>
                 <div className="space-x-2 flex">
-                  <Combobox
-                    suggest={async (input) => {
-                      let res = [{v: "Inbox", label: "Inbox"}]
-                      if(input.trim().length > 0){
-                        res.push({ v: input, label: `Create "${input}"` })
-                      }
-                      const localPkg = map((name)=>({v: name, label: name}),await searchPackage(input))
-                      return concat(res, localPkg)
-                    }}
-                    comboboxRender={({ value }) => value?.label}
-                    listItemRender={({ value }) => <span>{value?.label}</span>}
-                    keyOf={(v) => v?.v ?? "__null"}
-                    value={pkgComboboxValue}
-                    onValueChanged={(newValue) => {
-                      setPkgComboboxValue(newValue!);
-                      onPkgChanged && onPkgChanged(newValue!.v);
-                    }}
-                  />
-
+                  <PackageCombobox value={pkg} onValueChanged={onPkgChanged}/>
                   {!lockable ? null : (
                     <Toggle
                       pressed={lockPackage}

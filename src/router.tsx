@@ -6,7 +6,7 @@ const PageMainAll = lazy(() => import("@/pages/main/all"));
 const PageMainSettings = lazy(() => import("@/pages/main/settings"));
 
 import { ModalStackProvider } from "@/store/modal";
-import useTheme from "./lib/hook/useTheme";
+import useTheme from "./lib/hook/useDarkMode";
 
 const router = createBrowserRouter([
   {

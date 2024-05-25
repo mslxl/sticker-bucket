@@ -2,7 +2,7 @@ import { useAtomValue } from "jotai";
 import cfg from "@/store/settings";
 import { useEffect } from "react";
 
-export default function useTheme() {
+export default function useDarkMode() {
   const darkMode = useAtomValue(cfg.display.darkMode);
   const root = window.document.documentElement;
   useEffect(() => {

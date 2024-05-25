@@ -1,4 +1,4 @@
-import { StickyThumb } from "@/lib/cmd/library";
+import { StickyImg, StickyText, StickyThumb } from "@/lib/cmd/library";
 import { StickyListLayoutProps } from ".";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import clsx from "clsx";
@@ -14,26 +14,53 @@ interface GridItemProps {
   sticky: StickyThumb;
 }
 
-function GridItem({ sticky }: GridItemProps) {
+function ImgItem({ sticky }: { sticky: StickyImg }) {
   const url = convertFileSrc(sticky.path);
+  return (
+    <CardHeader className="h-full flex flex-col justify-end">
+      <CardTitle className="flex justify-center flex-1">
+        <div className="rounded-lg bg-secondary border flex items-center">
+          <img src={url} />
+        </div>
+      </CardTitle>
+      <Tooltip>
+        <TooltipTrigger>
+          <CardDescription className="whitespace-nowrap text-ellipsis overflow-hidden">
+            {sticky.name}
+          </CardDescription>
+        </TooltipTrigger>
+        <TooltipContent>{sticky.name}</TooltipContent>
+      </Tooltip>
+    </CardHeader>
+  );
+}
+function TxtItem({ sticky }: { sticky: StickyText }) {
+  return (
+    <CardHeader className="h-full flex flex-col justify-end">
+      <div className="overflow-hidden rounded-lg bg-secondary border p-2 max-h-60">
+      <div className="leading-7 [&:not(:first-child)]:mt-6 text-ellipsis h-full overflow-hidden whitespace-pre-line">{sticky.name}</div>
+      </div>
+      <Tooltip>
+        <TooltipTrigger>
+          <CardDescription className="whitespace-nowrap text-ellipsis overflow-hidden">
+            {sticky.name}
+          </CardDescription>
+        </TooltipTrigger>
+        <TooltipContent>{sticky.name}</TooltipContent>
+      </Tooltip>
+    </CardHeader>
+  );
+}
+
+function GridItem({ sticky }: GridItemProps) {
   return (
     <li>
       <Card className="h-full">
-        <CardHeader className="h-full flex flex-col justify-end">
-          <CardTitle className="flex justify-center flex-1">
-            <div className="rounded-lg bg-secondary border flex items-center">
-              <img src={url} />
-            </div>
-          </CardTitle>
-          <Tooltip>
-            <TooltipTrigger>
-              <CardDescription className="whitespace-nowrap text-ellipsis overflow-hidden">
-                {sticky.name}
-              </CardDescription>
-            </TooltipTrigger>
-            <TooltipContent>{sticky.name}</TooltipContent>
-          </Tooltip>
-        </CardHeader>
+        {sticky.ty == "PIC" ? (
+          <ImgItem sticky={sticky} />
+        ) : (
+          <TxtItem sticky={sticky} />
+        )}
       </Card>
     </li>
   );

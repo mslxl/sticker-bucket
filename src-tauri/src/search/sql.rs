@@ -52,6 +52,9 @@ fn build_main_stem(
                 sources.push(String::from("JOIN package on inp.package = package.id"));
                 cond.push(format!("package.name = '{}'", m.value));
             }
+            super::MetaKey::Ty =>{
+                cond.push(format!("inp.type = '{}'", m.value));
+            },
         };
     }
 

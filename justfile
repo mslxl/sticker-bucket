@@ -5,7 +5,7 @@ dev:
     pnpm tauri dev
 
 build-deb: 
-    pnpm tauri -b deb
+    pnpm tauri build -b deb
 
 build-nix:
     nix build

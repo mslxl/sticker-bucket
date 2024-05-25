@@ -56,7 +56,9 @@ export default function Combobox<T>({
       receivedSuggest.current = currentId;
     }
   }
-  const inputChangedDebounce = debounce(200, inputChanged)
+  const inputChangedDebounce = debounce(200, inputChanged);
+
+  const [popoverWidth, setPopoverWidget] = useState(200);
 
   // initial default
   useEffect(() => {
@@ -71,12 +73,15 @@ export default function Combobox<T>({
           role="combobox"
           aria-expanded={open}
           className="w-full justify-between"
+          onClick={(e) => {
+            setPopoverWidget(e.currentTarget.offsetWidth);
+          }}
         >
           <ComboboxRender value={value ?? null} />
           <LuChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-full p-0">
+      <PopoverContent className="p-0" style={{width: popoverWidth}}>
         <Command>
           <CommandInput
             onValueChange={inputChangedDebounce}

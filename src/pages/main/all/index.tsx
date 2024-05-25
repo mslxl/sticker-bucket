@@ -24,8 +24,17 @@ export default function AllPage() {
   const pushDialog = useSetAtom(pushDialogAtom);
   const popModal = useSetAtom(popModalAtom);
   function showStickyAddDialog() {
-    pushDialog(lazy(() => import("@/components/sticky-add-dialog"))).finally(
-      () => popModal()
+    pushDialog(lazy(() => import("@/components/sticky-add-file"))).finally(
+      () => {
+        popModal();
+      }
+    );
+  }
+  function showTextAddDialog() {
+    pushDialog(lazy(() => import("@/components/text-add"))).finally(
+      () => {
+        popModal();
+      }
     );
   }
 
@@ -62,7 +71,7 @@ export default function AllPage() {
                 <LuImagePlus className="mr-2 h-4 w-4" />
                 <span>Add Sticky</span>
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={showTextAddDialog}>
                 <LuTextCursorInput className="mr-2 h-4 w-4" />
                 <span>Add Text</span>
               </DropdownMenuItem>
