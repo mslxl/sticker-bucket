@@ -11,7 +11,7 @@ import {
 import { LuCheck, LuX } from "react-icons/lu";
 import { Tag } from "./tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
-import { createSticky, hasStickyFile } from "@/lib/cmd/library";
+import { createPictureSticky, hasStickyFile } from "@/lib/cmd/library";
 import { unreachable } from "@/lib/sys";
 import { Checkbox } from "./ui/checkbox";
 import * as fs from "@tauri-apps/plugin-fs";
@@ -95,7 +95,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
         })}`
       );
       try {
-        await createSticky(name, pkg, imagePath!, tags);
+        await createPictureSticky(name, pkg, imagePath!, tags);
         info("Add sticky successfully")
       } catch (reason: any) {
         error(reason)
@@ -121,7 +121,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
 
   return (
     <>
-      <AlertDialogHeader className="flex flex-row items-center justify-end mb-1 border-b">
+      <AlertDialogHeader className="flex flex-row items-center justify-end mb-1">
         <AlertDialogTitle>Add Sticky</AlertDialogTitle>
         <span className="flex-1" />
         <div>

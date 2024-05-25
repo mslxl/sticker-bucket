@@ -52,7 +52,7 @@ const display = {
   ),
   hideNsfw: atomWithStorage(
     "display.hide-nsfw",
-    false,
+    true,
     storageTyped<boolean>()
   ),
   blurNsfw: atomWithStorage("display.blur-nsfw", true, storageTyped<boolean>()),

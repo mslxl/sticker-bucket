@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use log::info;
 use rusqlite::{Connection, OptionalExtension, Transaction};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -46,17 +47,33 @@ pub fn get_or_create_package(transaction: &mut Transaction, name: &str) -> Resul
     }
 }
 
-pub fn create_sticky(
+pub fn insert_pic_sticky_record(
     transaction: &mut Transaction,
-    hash: &str,
+    filename: &str,
     name: &str,
     package: i64,
+    width: Option<i64>,
+    height: Option<i64>,
     sensor_id: Option<&str>,
 ) -> Result<i64, String> {
     transaction
         .execute(
-            "INSERT INTO sticky (hash, name, package, sensor_id) VALUES (?1, ?2, ?3, ?4)",
-            (hash, name, package, sensor_id),
+            "INSERT INTO sticky (filename, name, package, sensor_id, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'STICKY')",
+            (filename, name, package, sensor_id, width, height),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(transaction.last_insert_rowid())
+}
+
+pub fn insert_text_sticky_record(
+    transaction: &mut Transaction,
+    content: &str,
+    package: i64,
+) -> Result<i64, String> {
+    transaction
+        .execute(
+            "INSERT INTO sticky (name, package, type) VALUES (?1, ?2, 'TEXT')",
+            (content, package),
         )
         .map_err(|e| e.to_string())?;
     Ok(transaction.last_insert_rowid())
@@ -185,11 +202,27 @@ pub fn search_package(conn: &Connection, keyword: &str) -> Result<Vec<String>, S
     Ok(names)
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum StickTy {
+    PIC,
+    TEXT,
+}
+
+impl From<String> for StickTy {
+    fn from(value: String) -> Self {
+        match value.as_ref() {
+            "TEXT" => StickTy::TEXT,
+            _ => StickTy::PIC,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StickyThumb {
     id: i64,
-    path: PathBuf,
+    path: Option<PathBuf>,
     name: String,
+    ty: StickTy,
     width: Option<i64>,
     height: Option<i64>,
 }
@@ -209,10 +242,14 @@ pub fn search_sticky(
         .query_and_then::<_, anyhow::Error, _, _>([], |row| {
             Ok(StickyThumb {
                 id: row.get("id")?,
-                path: state.locate_path(&row.get::<&str, String>("hash")?),
+                path: row
+                    .get::<&str, String>("filename")
+                    .ok()
+                    .map(|s| state.locate_path(&s)),
                 name: row.get("name")?,
                 width: row.get("width").ok(),
                 height: row.get("height").ok(),
+                ty: StickTy::from(row.get::<&str, String>("type").unwrap()),
             })
         })
         .optional()

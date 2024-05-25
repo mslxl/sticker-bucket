@@ -41,7 +41,7 @@ interface TagEditorProps
   tags: Tag[];
 }
 
-export default function TagEditorA({
+export default function TagEditor({
   tags,
   onTagsChanged,
   className,

@@ -56,7 +56,7 @@ pub async fn has_sticky_file(
 }
 
 #[tauri::command]
-pub async fn create_sticky(
+pub async fn create_pic_sticky(
     state: tauri::State<'_, StickyDBState>,
     name: String,
     pkg: String,
@@ -69,7 +69,7 @@ pub async fn create_sticky(
     let filename = library::cpy_to_library(&state, path, with_ext)?;
     let pkg_id = library::get_or_create_package(&mut transaction, &pkg)?;
 
-    let sticky_id = library::create_sticky(&mut transaction, &filename, &name, pkg_id, None)?;
+    let sticky_id = library::insert_pic_sticky_record(&mut transaction, &filename, &name, pkg_id, None, None, None)?;
     for tag in tags {
         let tag_id = library::get_or_insert_tag(&mut transaction, &tag.namespace, &tag.value)?;
         library::add_tag_to_sticky(&mut transaction, sticky_id, tag_id)?;
@@ -77,6 +77,28 @@ pub async fn create_sticky(
     transaction.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn create_text_sticky(
+    state: tauri::State<'_, StickyDBState>,
+    content: String,
+    pkg: String,
+    tags: Vec<Tag>,
+) -> Result<(), String> {
+    let mut guard = state.conn.lock().await;
+    let mut transaction = guard.transaction().map_err(|e| e.to_string())?;
+    let pkg_id = library::get_or_create_package(&mut transaction, &pkg)?;
+
+    let sticky_id = library::insert_text_sticky_record(&mut transaction, &content, pkg_id)?;
+
+    for tag in tags {
+        let tag_id = library::get_or_insert_tag(&mut transaction, &tag.namespace, &tag.value)?;
+        library::add_tag_to_sticky(&mut transaction, sticky_id, tag_id)?;
+    }
+    transaction.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 
 #[tauri::command]
 pub async fn search_package(

@@ -31,6 +31,7 @@ pub enum MetaKey {
     DateStart,
     DateEnd,
     Package,
+    Ty,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -67,6 +68,7 @@ impl ToString for MetaKey {
             MetaKey::DateStart => String::from("date-start"),
             MetaKey::DateEnd => String::from("date-end"),
             MetaKey::Package => String::from("package"),
+            MetaKey::Ty => String::from("type"),
         }
     }
 }
