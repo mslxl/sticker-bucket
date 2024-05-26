@@ -1,3 +1,11 @@
+create table main.blacklist_image
+(
+    id   integer not null
+        primary key autoincrement,
+    path TEXT    not null
+        unique
+);
+
 create table main.package
 (
     id          integer not null
@@ -5,7 +13,9 @@ create table main.package
             primary key autoincrement,
     name        text    not null,
     description text,
-    author      text
+    author      text,
+    constraint check_name
+        check (length(trim(name)) > 0)
 );
 
 create index main.package_author_index
@@ -27,8 +37,8 @@ create table main.sticky
         constraint sticky_package_id_fk
             references main.package,
     sensor_id   TEXT,
-    width       integer  default -1                not null,
-    height      integer  default -1                not null,
+    width       integer,
+    height      integer,
     type        TEXT                               not null,
     constraint check_sticky_has_file
         check (type != 'PIC' OR (type = 'PIC' AND filename IS NOT NULL))

@@ -32,7 +32,7 @@ export const searchPackage = (keyword: string) =>
 
 export type StickyTY = "PIC" | "TEXT";
 
-export type StickyThumb = StickyText | StickyImg
+export type StickyThumb = StickyText | StickyImg;
 
 export interface StickyText {
   id: number;
@@ -65,3 +65,9 @@ export const searchTagValue = (
   ns: string,
   valuePrefix: string
 ): Promise<string[]> => invoke("search_tag_value", { ns, valuePrefix });
+
+export const blacklistPath = (path: string): Promise<void> =>
+  invoke("blacklist_path", { path });
+
+export const isPathBlacklist = (path: string): Promise<boolean> =>
+  invoke("is_path_blacklist", { path });

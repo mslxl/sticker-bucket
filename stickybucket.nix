@@ -67,7 +67,7 @@ stdenv.mkDerivation rec {
 
     dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-Fc14hRyk4ZSqwfARkM8gPU95Ip7JXmLNZQHOKH3bcAs=";
+    outputHash = "sha256-uMvaNJBTV3XBa6wcIrafoQSMzYJ/yc2IEXiBXXdkvd0=";
   };
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ./src-tauri/Cargo.lock;

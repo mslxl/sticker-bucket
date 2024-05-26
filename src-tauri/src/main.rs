@@ -48,7 +48,9 @@ fn main() {
             cmd::library::search_package,
             cmd::library::search_sticky,
             cmd::library::search_tag_ns,
-            cmd::library::search_tag_value
+            cmd::library::search_tag_value,
+            cmd::library::is_path_blacklist,
+            cmd::library::blacklist_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

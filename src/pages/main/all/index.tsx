@@ -5,24 +5,32 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { popModalAtom, pushDialogAtom } from "@/store/modal";
 import { useSetAtom } from "jotai";
+import { LucideListCollapse } from "lucide-react";
 import { lazy, useState } from "react";
 import {
+  LuFolderPlus,
   LuImagePlus,
   LuMenu,
   LuSearch,
   LuSearchSlash,
   LuTextCursorInput,
 } from "react-icons/lu";
+import { useNavigate } from "react-router-dom";
 
 export default function AllPage() {
   const pushDialog = useSetAtom(pushDialogAtom);
   const popModal = useSetAtom(popModalAtom);
+  const navigate = useNavigate()
   function showStickyAddDialog() {
     pushDialog(lazy(() => import("@/components/sticky-add-file"))).finally(
       () => {
@@ -31,11 +39,13 @@ export default function AllPage() {
     );
   }
   function showTextAddDialog() {
-    pushDialog(lazy(() => import("@/components/text-add"))).finally(
-      () => {
-        popModal();
-      }
-    );
+    pushDialog(lazy(() => import("@/components/text-add"))).finally(() => {
+      popModal();
+    });
+  }
+  function addStickyFromFolder(){
+    navigate('add/folder')
+
   }
 
   const [searchInput, setSearchInput] = useState("");
@@ -75,6 +85,20 @@ export default function AllPage() {
                 <LuTextCursorInput className="mr-2 h-4 w-4" />
                 <span>Add Text</span>
               </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LucideListCollapse className="mr-2 h-4 w-4" />
+                  <span>More</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuItem onClick={addStickyFromFolder}>
+                      <LuFolderPlus className="mr-2 h-4 w-4" />
+                      <span>Add Stickies From Folder</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>

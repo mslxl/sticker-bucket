@@ -1,11 +1,11 @@
 import { StickyThumb, searchSticky } from "@/lib/cmd/library";
 import StickyGrid from "./sticky-grid";
 import { useEffect, useRef, useState } from "react";
-import clsx from "clsx";
-import { LuAlertTriangle } from "react-icons/lu";
 import { useAtomValue } from "jotai";
 import cfg from "@/store/settings";
 import { join, map } from "lodash/fp";
+import InfoView from "../info-view";
+import { LuCheckCircle } from "react-icons/lu";
 
 export interface StickyListProps {
   stmt: string;
@@ -33,7 +33,10 @@ export default function StickyList({ stmt, page, ...props }: StickyListProps) {
     const taskId = emitSearchCounter.current;
     let toSearchStatement = stmt;
     if (hideNSFW) {
-      toSearchStatement += join("",map((tag) => ` -${tag}`, nsfwTags));
+      toSearchStatement += join(
+        "",
+        map((tag) => ` -${tag}`, nsfwTags)
+      );
     }
     searchSticky(toSearchStatement, page)
       .then((sticky) => {
@@ -50,21 +53,17 @@ export default function StickyList({ stmt, page, ...props }: StickyListProps) {
 
   if (status == "ERROR") {
     return (
-      <div
-        className={clsx(
-          "flex justify-center items-center flex-col",
-          props.className
+      <InfoView
+        className={props.className}
+        icon={<LuCheckCircle className="pr-2"/>}
+        title="Error"
+        description={errorMessage}
+        other={() => (
+          <p className="italic text-muted-foreground pt-2">
+            * This could happend when current search statement is not valid
+          </p>
         )}
-      >
-        <h4 className="flex items-center justify-center font-semibold p-2 text-lg leading-none">
-          <LuAlertTriangle className="mr-2" />
-          Error
-        </h4>
-        <p>{errorMessage}</p>
-        <p className="italic text-muted-foreground pt-2">
-          * This could happend when current search statement is not valid
-        </p>
-      </div>
+      />
     );
   }
 
