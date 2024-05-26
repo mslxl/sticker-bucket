@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use log::info;
 use rusqlite::{Connection, OptionalExtension, Transaction};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -235,7 +234,7 @@ pub fn search_sticky(
 ) -> Result<Vec<StickyThumb>, String> {
     info!("Search with: {}", &stmt);
     let parsed_stmt = parse_serach(stmt)?;
-    let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, 50);
+    let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, 50)?;
     info!("Statement: {}", &sql);
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let res = stmt

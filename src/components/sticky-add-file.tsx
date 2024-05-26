@@ -15,6 +15,7 @@ import { createPictureSticky, hasStickyFile } from "@/lib/cmd/library";
 import { unreachable } from "@/lib/sys";
 import { Checkbox } from "./ui/checkbox";
 import * as fs from "@tauri-apps/plugin-fs";
+import { imageFliter } from "@/const";
 
 interface StickyAddDialogProps {
   resolve: () => void;
@@ -40,6 +41,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
       dialog
         .open({
           title: "Select Sticky Image",
+          filters: imageFliter
         })
         .then((res) => {
           info(`Select image ${res?.path}`);

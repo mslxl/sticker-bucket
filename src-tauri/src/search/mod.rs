@@ -31,6 +31,8 @@ pub enum MetaKey {
     DateStart,
     DateEnd,
     Package,
+    Sort,
+    Order,
     Ty,
 }
 
@@ -58,6 +60,8 @@ impl MetaKey {
             "date-start" | "DateStart" => Ok(MetaKey::DateStart),
             "date-end" | "DateEnd" => Ok(MetaKey::DateEnd),
             "package" | "pkg" => Ok(MetaKey::Package),
+            "sort" => Ok(MetaKey::Sort),
+            "order" => Ok(MetaKey::Order),
             _ => Err(format!("Unrecongized key: {}", key)),
         }
     }
@@ -69,6 +73,8 @@ impl ToString for MetaKey {
             MetaKey::DateEnd => String::from("date-end"),
             MetaKey::Package => String::from("package"),
             MetaKey::Ty => String::from("type"),
+            MetaKey::Sort => String::from("sort"),
+            MetaKey::Order => String::from("order")
         }
     }
 }
@@ -106,7 +112,7 @@ impl ToString for ParsedItem {
 }
 
 fn parse_identifier(input: &str) -> IResult<&str, &str> {
-    recognize(many1(none_of(" :\"\t\r\n")))(input)
+    recognize(many1(none_of(" :\"\t\r\n$")))(input)
 }
 
 fn parse_str(input: &str) -> IResult<&str, &str> {
@@ -262,6 +268,17 @@ mod tests {
 
     #[test]
     fn test_parse_item() {
+        assert_eq!(
+            parse_search_list("$sort:name").unwrap(),
+            (
+                "",
+                vec![ParsedItem::Meta(ParsedMeta {
+                    not: false,
+                    key: MetaKey::Sort,
+                    value: "name".to_string()
+                })]
+            )
+        );
         assert_eq!(
             parse_search_list("SakuradaShiro").unwrap(),
             (
