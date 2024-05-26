@@ -5,7 +5,6 @@ import { useAtomValue } from "jotai";
 import cfg from "@/store/settings";
 import { join, map } from "lodash/fp";
 import InfoView from "../info-view";
-import { LuCheckCircle } from "react-icons/lu";
 
 export interface StickyListProps {
   stmt: string;
@@ -55,7 +54,6 @@ export default function StickyList({ stmt, page, ...props }: StickyListProps) {
     return (
       <InfoView
         className={props.className}
-        icon={<LuCheckCircle className="pr-2"/>}
         title="Error"
         description={errorMessage}
         other={() => (

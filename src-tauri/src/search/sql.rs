@@ -2,33 +2,37 @@ use itertools::Itertools;
 
 use super::{ParsedKeyword, ParsedMeta, ParsedTag, Search};
 
-pub fn build_search_sql_stmt(search: Search, page: i32, page_size: i32) -> String {
+pub fn build_search_sql_stmt(search: Search, page: i32, page_size: i32) -> Result<String, String> {
     let Search {
         tags,
         keywords,
         meta,
     } = search;
-    let mut stmt = if tags.is_empty() {
+    let stmt = if tags.is_empty() {
         build_main_stem("sticky", &keywords, &meta)
     } else {
-        format!(
+        Ok(format!(
             "WITH taged_sticky AS ({}) {}",
             build_sub_query_tages(&tags).unwrap(),
-            build_main_stem("taged_sticky", &keywords, &meta)
-        )
+            build_main_stem("taged_sticky", &keywords, &meta)?
+        ))
     };
-    stmt.push_str(&format!(" LIMIT {} OFFSET {}", page_size, page * page_size));
-    stmt.push(';');
-    stmt
+    stmt.map(|mut stmt: String| {
+        stmt.push_str(&format!(" LIMIT {} OFFSET {}", page_size, page * page_size));
+        stmt.push(';');
+        stmt
+    })
 }
 
 fn build_main_stem(
     src_table: &str,
     keywords: &Vec<ParsedKeyword>,
     meta: &Vec<ParsedMeta>,
-) -> String {
+) -> Result<String, String> {
     let mut sources = Vec::new();
     let mut cond = Vec::new();
+    let mut order_by = None;
+    let mut order_rev = false;
 
     sources.push(format!("{} as inp", src_table));
 
@@ -52,14 +56,42 @@ fn build_main_stem(
                 sources.push(String::from("JOIN package on inp.package = package.id"));
                 cond.push(format!("package.name = '{}'", m.value));
             }
-            super::MetaKey::Ty =>{
+            super::MetaKey::Ty => {
                 cond.push(format!("inp.type = '{}'", m.value));
+            }
+            super::MetaKey::Sort => match m.value.as_ref() {
+                "name" => {
+                    order_by = Some("inp.name");
+                }
+                "create" => {
+                    order_by = Some("inp.create_date");
+                }
+                "modify" => {
+                    order_by = Some("inp.modify_date");
+                }
+                _ => {
+                    Err(format!(
+                        "{} is not sortable. it must be one of 'name', 'create' or 'modify'",
+                        m.value
+                    ))?;
+                }
+            },
+            super::MetaKey::Order => match m.value.as_ref() {
+                "asc" => {
+                    order_rev = false;
+                }
+                "desc" => {
+                    order_rev = true;
+                }
+                _ => {
+                    Err(format!("Order must be 'asc' or 'desc'"))?;
+                }
             },
         };
     }
 
-    format!(
-        "SELECT inp.* FROM {}{}",
+    Ok(format!(
+        "SELECT inp.* FROM {}{} {}",
         sources
             .into_iter()
             .reduce(|pre, acc| format!("{} {}", pre, acc))
@@ -67,8 +99,11 @@ fn build_main_stem(
         cond.into_iter()
             .reduce(|pre, acc| format!("{} AND {}", pre, acc))
             .map(|c| format!(" WHERE {}", c))
-            .unwrap_or(String::new())
-    )
+            .unwrap_or(String::new()),
+        order_by
+            .map(|v| format!("ORDER BY {} {}", v, if order_rev { "DESC" } else { "ASC" }))
+            .unwrap_or_else(|| String::new()),
+    ))
 }
 
 /*
@@ -186,7 +221,7 @@ mod tests {
                 value: "Inbox".to_string(),
             }],
         };
-        println!("{}",build_search_sql_stmt(s, 0, 30));
+        println!("{}", build_search_sql_stmt(s, 0, 30).unwrap());
     }
 
     #[test]
@@ -205,7 +240,7 @@ mod tests {
                     }
                 ],
                 &Vec::new()
-            ),
+            ).unwrap(),
             String::from("SELECT inp.* FROM sticky as inp JOIN package on inp.package = package.id WHERE package.name = '穗穗'")
         );
         assert_eq!(
@@ -220,7 +255,7 @@ mod tests {
                         value: "穗穗".to_string()
                     }
                 ]
-            ),
+            ).unwrap(),
             String::from("SELECT inp.* FROM sticky as inp WHERE inp.name LIKE '%刷%' AND inp.name NOT LIKE '%朱重八%'")
         );
     }
