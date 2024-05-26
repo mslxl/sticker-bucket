@@ -20,7 +20,7 @@ function ImgItem({ sticky }: { sticky: StickyImg }) {
     <CardHeader className="h-full flex flex-col justify-end">
       <CardTitle className="flex justify-center flex-1">
         <div className="rounded-lg bg-secondary border flex items-center">
-          <img src={url} />
+          <img src={url} loading="lazy" />
         </div>
       </CardTitle>
       <Tooltip>

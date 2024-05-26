@@ -313,3 +313,21 @@ pub fn search_tag_value(
         Ok(vec![])
     }
 }
+
+pub fn blacklist_path(conn: &Connection, path: &str) -> Result<(), String> {
+    conn.execute("INSERT INTO blacklist_image (path) VALUES (?1)", [path])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn is_path_blacklist(conn: &Connection, path: &str) -> Result<bool, String> {
+    let data = conn
+        .query_row_and_then(
+            "SELECT path FROM blacklist_image WHERE path = ?1",
+            [path],
+            |row| row.get::<usize, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    Ok(data.is_some())
+}

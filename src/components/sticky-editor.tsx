@@ -77,7 +77,7 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
         onNameChanged && onNameChanged("");
       }
       if (!lockPackage) {
-        onPkgChanged && onPkgChanged("");
+        onPkgChanged && onPkgChanged("Inbox");
       }
       onTagsChanged && onTagsChanged(lockedTags);
     }

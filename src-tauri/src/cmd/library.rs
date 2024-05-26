@@ -141,3 +141,23 @@ pub async fn search_tag_value(
     let conn: &Connection = &guard;
     library::search_tag_value(conn, ns, value_prefix)
 }
+
+#[tauri::command]
+pub async fn blacklist_path(
+    state: tauri::State<'_, StickyDBState>,
+    path: &str,
+) -> Result<(), String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::blacklist_path(conn, path)
+}
+
+#[tauri::command]
+pub async fn is_path_blacklist(
+    state: tauri::State<'_, StickyDBState>,
+    path: &str,
+) -> Result<bool, String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::is_path_blacklist(conn, path)
+}

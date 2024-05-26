@@ -25,7 +25,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
   const dialogVisible = useRef(false);
   const [imagePath, setImagePath] = useState<string>();
   const [name, setName] = useState("");
-  const [pkg, setPkg] = useState("");
+  const [pkg, setPkg] = useState("Inbox");
   const [fav, setFav] = useState(false);
   const [tags, setTags] = useState<Tag[]>([]);
   const [del, setDel] = useState(false);

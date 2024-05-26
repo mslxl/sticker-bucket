@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import { attachConsole } from "@tauri-apps/plugin-log";
 
 import "normalize.css";
-import "@/global.css";
+import "@/tailwind.css"
+import "@/global.scss";
 import { loadConst } from "./const";
 
 Promise.all([attachConsole(), loadConst]).then(() => {
