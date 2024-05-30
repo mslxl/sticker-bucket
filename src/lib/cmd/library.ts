@@ -32,15 +32,15 @@ export const searchPackage = (keyword: string) =>
 
 export type StickyTY = "PIC" | "TEXT";
 
-export type StickyThumb = StickyText | StickyImg;
+export type StickyThumb = StickyTextThumb | StickyImgThumb;
 
-export interface StickyText {
+export interface StickyTextThumb {
   id: number;
   name: string;
   ty: "TEXT";
 }
 
-export interface StickyImg {
+export interface StickyImgThumb {
   id: number;
   path: string;
   name: string;
@@ -58,6 +58,9 @@ export const searchSticky = (
     page,
   });
 
+export const countSearchStickyPage = (stmt: string): Promise<number> =>
+  invoke("count_search_sticky_page", { stmt });
+
 export const searchTagNamespace = (prefix: string): Promise<string[]> =>
   invoke("search_tag_ns", { prefix });
 
@@ -71,3 +74,26 @@ export const blacklistPath = (path: string): Promise<void> =>
 
 export const isPathBlacklist = (path: string): Promise<boolean> =>
   invoke("is_path_blacklist", { path });
+
+export type Sticky = StickyText | StickyImg;
+
+export interface StickyImg {
+  id: number;
+  path: string;
+  name: string;
+  width?: number;
+  height?: number;
+  package: string;
+  tags: Tag[];
+  ty: "PIC";
+}
+export interface StickyText {
+  id: number;
+  name: string;
+  package: string;
+  tags: Tag[];
+  ty: "PIC" | "TEXT";
+}
+
+export const getStickyById = (id: number): Promise<Sticky> =>
+  invoke("get_sticky_by_id", { id });

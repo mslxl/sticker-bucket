@@ -1,4 +1,4 @@
-create table main.blacklist_image
+create table blacklist_image
 (
     id   integer not null
         primary key autoincrement,
@@ -6,7 +6,7 @@ create table main.blacklist_image
         unique
 );
 
-create table main.package
+create table package
 (
     id          integer not null
         constraint package_pk
@@ -18,13 +18,13 @@ create table main.package
         check (length(trim(name)) > 0)
 );
 
-create index main.package_author_index
-    on main.package (author);
+create index package_author_index
+    on package (author);
 
-create index main.package_name_index
-    on main.package (name);
+create index package_name_index
+    on package (name);
 
-create table main.sticky
+create table sticky
 (
     id          integer                            not null
         constraint sticky_pk
@@ -35,7 +35,7 @@ create table main.sticky
     name        text                               not null,
     package     integer                            not null
         constraint sticky_package_id_fk
-            references main.package,
+            references package,
     sensor_id   TEXT,
     width       integer,
     height      integer,
@@ -44,28 +44,28 @@ create table main.sticky
         check (type != 'PIC' OR (type = 'PIC' AND filename IS NOT NULL))
 );
 
-create index main.sticky_create_date_index
-    on main.sticky (create_date);
+create index sticky_create_date_index
+    on sticky (create_date);
 
-create index main.sticky_modify_date_index
-    on main.sticky (modify_date);
+create index sticky_modify_date_index
+    on sticky (modify_date);
 
-create index main.sticky_sensor_id_index
-    on main.sticky (sensor_id);
+create index sticky_sensor_id_index
+    on sticky (sensor_id);
 
-create table main.subscription
+create table subscription
 (
     id    integer not null
         constraint subscription_pk
             primary key autoincrement
         constraint subscription_package_id_fk
-            references main.package,
+            references package,
     type  integer not null,
     url   text    not null,
     extra text
 );
 
-create table main.tag
+create table tag
 (
     id        integer not null
         constraint tag_pk
@@ -74,22 +74,22 @@ create table main.tag
     value     text    not null
 );
 
-create table main.sticky_tag
+create table sticky_tag
 (
     sticky integer not null
         constraint sticky_id_fk
-            references main.sticky,
+            references sticky,
     tag    integer not null
         constraint tag_id_fk
-            references main.tag,
+            references tag,
     constraint sticky_tag_pk
         primary key (tag, sticky)
 );
 
-create index main.tag_namespace_value_index
-    on main.tag (namespace, value);
+create index tag_namespace_value_index
+    on tag (namespace, value);
 
-create table main.version
+create table version
 (
     version_code integer not null
         constraint version_pk

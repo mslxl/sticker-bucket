@@ -19,6 +19,7 @@
     "store:allow-load",
     "dialog:allow-save",
     "dialog:allow-open",
+    "process:allow-restart",
     "path:allow-join",
     {
       "identifier": "fs:scope",

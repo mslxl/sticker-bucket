@@ -47,10 +47,12 @@ fn main() {
             cmd::library::has_sticky_file,
             cmd::library::search_package,
             cmd::library::search_sticky,
+            cmd::library::count_search_sticky_page,
             cmd::library::search_tag_ns,
             cmd::library::search_tag_value,
             cmd::library::is_path_blacklist,
             cmd::library::blacklist_path,
+            cmd::library::get_sticky_by_id,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

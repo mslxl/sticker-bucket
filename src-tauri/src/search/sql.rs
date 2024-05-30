@@ -9,12 +9,12 @@ pub fn build_search_sql_stmt(search: Search, page: i32, page_size: i32) -> Resul
         meta,
     } = search;
     let stmt = if tags.is_empty() {
-        build_main_stem("sticky", &keywords, &meta)
+        build_main_stem("sticky", &keywords, &meta, false)
     } else {
         Ok(format!(
             "WITH taged_sticky AS ({}) {}",
             build_sub_query_tages(&tags).unwrap(),
-            build_main_stem("taged_sticky", &keywords, &meta)?
+            build_main_stem("taged_sticky", &keywords, &meta, false)?
         ))
     };
     stmt.map(|mut stmt: String| {
@@ -24,10 +24,29 @@ pub fn build_search_sql_stmt(search: Search, page: i32, page_size: i32) -> Resul
     })
 }
 
+pub fn build_count_sql_stmt(search: Search) -> Result<String, String>{ 
+    let Search {
+        tags,
+        keywords,
+        meta,
+    } = search;
+    let stmt = if tags.is_empty() {
+        build_main_stem("sticky", &keywords, &meta, true)
+    } else {
+        Ok(format!(
+            "WITH taged_sticky AS ({}) {}",
+            build_sub_query_tages(&tags).unwrap(),
+            build_main_stem("taged_sticky", &keywords, &meta, true)?
+        ))
+    };
+    stmt
+}
+
 fn build_main_stem(
     src_table: &str,
     keywords: &Vec<ParsedKeyword>,
     meta: &Vec<ParsedMeta>,
+    count_number: bool
 ) -> Result<String, String> {
     let mut sources = Vec::new();
     let mut cond = Vec::new();
@@ -91,7 +110,12 @@ fn build_main_stem(
     }
 
     Ok(format!(
-        "SELECT inp.* FROM {}{} {}",
+        "SELECT {} FROM {}{} {}",
+        if count_number {
+            "COUNT(inp.id)"
+        }else{
+            "inp.*"
+        },
         sources
             .into_iter()
             .reduce(|pre, acc| format!("{} {}", pre, acc))
@@ -239,7 +263,8 @@ mod tests {
                         value: "朱重八".to_string()
                     }
                 ],
-                &Vec::new()
+                &Vec::new(),
+                false
             ).unwrap(),
             String::from("SELECT inp.* FROM sticky as inp JOIN package on inp.package = package.id WHERE package.name = '穗穗'")
         );
@@ -254,7 +279,8 @@ mod tests {
                         not: false,
                         value: "穗穗".to_string()
                     }
-                ]
+                ],
+                false
             ).unwrap(),
             String::from("SELECT inp.* FROM sticky as inp WHERE inp.name LIKE '%刷%' AND inp.name NOT LIKE '%朱重八%'")
         );

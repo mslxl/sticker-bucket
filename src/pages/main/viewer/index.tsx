@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { popModalAtom, pushDialogAtom } from "@/store/modal";
 import { useSetAtom } from "jotai";
 import { LucideListCollapse } from "lucide-react";
-import { lazy, useState } from "react";
+import { lazy, useEffect, useState } from "react";
 import {
   LuFolderPlus,
   LuImagePlus,
@@ -25,12 +25,32 @@ import {
   LuSearchSlash,
   LuTextCursorInput,
 } from "react-icons/lu";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+
+export interface AllPageParam{
+  stmt?: string
+  page?: string
+}
 
 export default function AllPage() {
+  
+  const {
+    stmt: additionStatement = "",
+    page: pageStr = '1'
+  } = useParams() as AllPageParam
+
+  const navigate = useNavigate();
+  const page = parseInt(pageStr)
+  function setPage(pg: number){
+    if(additionStatement.length > 0){
+      navigate(`/list/${additionStatement}/${pg}`)
+    }else{
+      navigate(`/list/${pg}`)
+    }
+  }
+
   const pushDialog = useSetAtom(pushDialogAtom);
   const popModal = useSetAtom(popModalAtom);
-  const navigate = useNavigate()
   function showStickyAddDialog() {
     pushDialog(lazy(() => import("@/components/sticky-add-file"))).finally(
       () => {
@@ -43,13 +63,14 @@ export default function AllPage() {
       popModal();
     });
   }
-  function addStickyFromFolder(){
-    navigate('add/folder')
-
+  function addStickyFromFolder() {
+    navigate("add/folder");
   }
 
   const [searchInput, setSearchInput] = useState("");
-  const [page, setPage] = useState(0);
+  useEffect(()=>{
+    if(page > 1) setPage(1)
+  }, [searchInput])
 
   return (
     <div className="h-screen">
@@ -105,7 +126,7 @@ export default function AllPage() {
       </nav>
       <StickyList
         className="h-[calc(100%-4rem)] overflow-y-auto p-4"
-        stmt={searchInput}
+        stmt={`${searchInput} ${additionStatement}`}
         page={page}
         onPageChange={setPage}
       />

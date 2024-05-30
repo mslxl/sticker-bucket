@@ -59,6 +59,9 @@ export default function TagEditor({
 
   function removeTagItem(namespace: string, value: string) {
     info(`Remove tag item ${namespace}:${value}`);
+    if(isLocked({namespace, value})){
+      tryLockTag({namespace, value})
+    }
     onTagsChanged && onTagsChanged(filter(tagNe({ namespace, value }), tags));
   }
   function addTagItem(values: z.infer<typeof schema>) {

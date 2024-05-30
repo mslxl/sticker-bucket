@@ -9,7 +9,7 @@ use crate::{
     search::{self, parse_serach},
 };
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct Tag {
     pub namespace: String,
     pub value: String,
@@ -57,7 +57,7 @@ pub fn insert_pic_sticky_record(
 ) -> Result<i64, String> {
     transaction
         .execute(
-            "INSERT INTO sticky (filename, name, package, sensor_id, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'STICKY')",
+            "INSERT INTO sticky (filename, name, package, sensor_id, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'PIC')",
             (filename, name, package, sensor_id, width, height),
         )
         .map_err(|e| e.to_string())?;
@@ -226,6 +226,7 @@ pub struct StickyThumb {
     height: Option<i64>,
 }
 
+static ITEM_PER_PAGE: i32 = 40;
 pub fn search_sticky(
     state: &StickyDBState,
     conn: &Connection,
@@ -234,7 +235,7 @@ pub fn search_sticky(
 ) -> Result<Vec<StickyThumb>, String> {
     info!("Search with: {}", &stmt);
     let parsed_stmt = parse_serach(stmt)?;
-    let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, 50)?;
+    let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, ITEM_PER_PAGE)?;
     info!("Statement: {}", &sql);
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let res = stmt
@@ -265,6 +266,21 @@ pub fn search_sticky(
         info!("Result number: 0");
         Ok(Vec::new())
     }
+}
+
+
+pub fn count_search_sticky_page(
+    conn: &Connection,
+    stmt: &str,
+) -> Result<i32, String> {
+    info!("Count page of stmt: {}", &stmt);
+    let parsed_stmt = parse_serach(stmt)?;
+    let sql = search::sql::build_count_sql_stmt(parsed_stmt)?;
+    info!("Count via statement: {}", &sql);
+    let cnt = conn.query_row_and_then(&sql, (), |row| row.get::<usize, i32>(0)).map_err(|e| e.to_string())?;
+    let page =cnt / ITEM_PER_PAGE + (if cnt % ITEM_PER_PAGE == 0 { 0 } else { 1 });
+    info!("Item mumber: {}, page number: {}", cnt, page);
+    Ok(page)
 }
 
 pub fn search_tag_ns(conn: &Connection, prefix: &str) -> Result<Vec<String>, String> {
@@ -329,4 +345,64 @@ pub fn is_path_blacklist(conn: &Connection, path: &str) -> Result<bool, String> 
         .optional()
         .map_err(|e| e.to_string())?;
     Ok(data.is_some())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Sticky {
+    id: i64,
+    path: Option<PathBuf>,
+    name: String,
+    ty: StickTy,
+    width: Option<i64>,
+    height: Option<i64>,
+    package: String,
+    tags: Vec<Tag>,
+}
+
+pub fn get_sticky_by_id(
+    state: &StickyDBState,
+    conn: &Connection,
+    id: i64,
+) -> Result<Sticky, String> {
+    let (filepath, name, pkg_name, width, height,ty ) = conn.query_row("SELECT sticky.filename, sticky.name, package.name, sticky.width, sticky.height, sticky.type FROM sticky LEFT JOIN package ON sticky.package = package.id WHERE sticky.id = ?1", [id], 
+    |row| Ok(
+        (
+            row.get::<usize, String>(0).ok().as_ref().map(|path| state.locate_path(path)),
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3).ok(),
+            row.get(4).ok(),
+            row.get::<usize, String>(5).map(|ty| match ty.as_ref() {
+                "TEXT" => StickTy::TEXT,
+                _ => StickTy::PIC
+            })?
+        ))).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT namespace, value FROM sticky_tag LEFT JOIN tag ON sticky_tag.tag = tag.id WHERE sticky_tag.sticky = ?1").map_err(|e| e.to_string())?;
+    let res = stmt
+        .query_and_then([id], |row| -> anyhow::Result<Tag> {
+            Ok(Tag {
+                namespace: row.get(0)?,
+                value: row.get(1)?,
+            })
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let mut tags = Vec::new();
+
+    if let Some(res) = res {
+        for item in res {
+            tags.push(item.map_err(|e| e.to_string())?);
+        }
+    }
+
+    Ok(Sticky {
+        id: id,
+        path: filepath,
+        name: name,
+        ty: ty,
+        width: width,
+        height: height,
+        package: pkg_name,
+        tags: tags,
+    })
 }
