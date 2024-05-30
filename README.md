@@ -11,9 +11,10 @@
 <tr>
 <td>
 
-![GitHub](https://img.shields.io/github/license/mslxl/meme-management?style=for-the-badge)
-![Milestones](https://img.shields.io/github/milestones/all/mslxl/meme-management?style=for-the-badge)
-![Release](https://img.shields.io/github/v/release/mslxl/meme-management?include_prereleases&style=for-the-badge)
+![GitHub last commit](https://img.shields.io/github/last-commit/mslxl/sticky-bucket?style=for-the-badge)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/mslxl/sticky-bucket?style=for-the-badge)
+![GitHub](https://img.shields.io/github/license/mslxl/sticky-bucket?style=for-the-badge)
+![Release](https://img.shields.io/github/v/release/mslxl/sticky-bucket?include_prereleases&style=for-the-badge)
 
 </td>
 
