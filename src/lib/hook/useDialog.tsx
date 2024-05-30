@@ -22,7 +22,7 @@ export function useDialog() {
           <AlertDialogHeader>
             <AlertDialogTitle>{options?.title ?? "Message"}</AlertDialogTitle>
           </AlertDialogHeader>
-          <p>{message}</p>
+          <p className="overflow-hidden whitespace-normal">{message}</p>
           <AlertDialogFooter>
             <AlertDialogAction>{options?.okLabel ?? "OK"}</AlertDialogAction>
           </AlertDialogFooter>
@@ -35,7 +35,7 @@ export function useDialog() {
           <AlertDialogHeader>
             <AlertDialogTitle>{options?.title ?? "Confirm"}</AlertDialogTitle>
           </AlertDialogHeader>
-          <p>{message}</p>
+          <p className="whitespace-normal overflow-hidden">{message}</p>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => resolve(false)}>
               {options?.cancelLabel ?? "Cancel"}

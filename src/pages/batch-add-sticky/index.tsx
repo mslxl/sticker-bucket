@@ -1,5 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { LuArrowDown, LuArrowLeft, LuSkipForward } from "react-icons/lu";
+import {
+  LuArrowDown,
+  LuArrowLeft,
+  LuSkipBack,
+  LuSkipForward,
+} from "react-icons/lu";
 import { useLoaderData } from "react-router-dom";
 import { BatchAddStickyLoaderData } from "./data-loader";
 import { useMemo, useRef, useState } from "react";
@@ -29,6 +34,7 @@ export default function BatchAddSticky() {
   const { images } = useLoaderData() as BatchAddStickyLoaderData;
   const [imagesIndex, setImageIndex] = useState(0);
   const [batchAddedCnt, setBatchAddCnt] = useState(0);
+  const [allowBackwardCount, setAllowBackwardCount] = useState(0);
 
   const imagePath = images && images[imagesIndex];
   const imageUrl = useMemo(
@@ -55,7 +61,12 @@ export default function BatchAddSticky() {
   }
 
   function skip() {
+    setAllowBackwardCount((v) => v + 1);
     setImageIndex((v) => v + 1);
+  }
+  function backward() {
+    setAllowBackwardCount((v) => v - 1);
+    setImageIndex((v) => v - 1);
   }
 
   function valid(): boolean {
@@ -142,6 +153,7 @@ export default function BatchAddSticky() {
           });
         }
       }
+      setAllowBackwardCount(0);
       editorRef.current?.reset();
       setImageIndex((v) => v + 1);
       setBatchAddCnt((v) => v + 1);
@@ -179,6 +191,13 @@ export default function BatchAddSticky() {
                   <LuSkipForward className="pr-2" />
                   Ignore this image
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={backward}
+                  disabled={allowBackwardCount == 0}
+                >
+                  <LuSkipBack className="pr-2" />
+                  Backward
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </span>
@@ -191,9 +210,9 @@ export default function BatchAddSticky() {
         value={(imagesIndex / images?.length) * 100}
       />
       <div className="p-8">
-      <h5 className="text-muted-foreground leading-none py-2 text-end">
-        File: {imagePath}
-      </h5>
+        <h5 className="text-muted-foreground leading-none py-2 text-end">
+          File: {imagePath}
+        </h5>
         <div className="flex items-center space-x-2">
           <Checkbox
             id="delete"

@@ -1,4 +1,4 @@
-import { StickyImg, StickyText, StickyThumb } from "@/lib/cmd/library";
+import { StickyImgThumb, StickyTextThumb, StickyThumb } from "@/lib/cmd/library";
 import { StickyListLayoutProps } from ".";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import clsx from "clsx";
@@ -9,12 +9,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../ui/tooltip";
+import { useNavigate } from "react-router-dom";
 
 interface GridItemProps {
   sticky: StickyThumb;
 }
 
-function ImgItem({ sticky }: { sticky: StickyImg }) {
+function ImgItem({ sticky }: { sticky: StickyImgThumb }) {
   const url = convertFileSrc(sticky.path);
   return (
     <CardHeader className="h-full flex flex-col justify-end">
@@ -34,7 +35,7 @@ function ImgItem({ sticky }: { sticky: StickyImg }) {
     </CardHeader>
   );
 }
-function TxtItem({ sticky }: { sticky: StickyText }) {
+function TxtItem({ sticky }: { sticky: StickyTextThumb }) {
   return (
     <CardHeader className="h-full flex flex-col justify-end">
       <div className="overflow-hidden rounded-lg bg-secondary border p-2 max-h-60">
@@ -53,9 +54,10 @@ function TxtItem({ sticky }: { sticky: StickyText }) {
 }
 
 function GridItem({ sticky }: GridItemProps) {
+  const navgiate = useNavigate()
   return (
     <li>
-      <Card className="h-full">
+      <Card className="h-full hover:bg-secondary" onClick={()=>navgiate(`/viewer/${sticky.id}`)}>
         {sticky.ty == "PIC" ? (
           <ImgItem sticky={sticky} />
         ) : (
@@ -79,7 +81,7 @@ export default function StickyGrid({
       >
         <TooltipProvider>
           {stickies.map((s) => (
-            <GridItem key={s.id} sticky={s} />
+            <GridItem key={s.id} sticky={s}/>
           ))}
         </TooltipProvider>
       </ul>

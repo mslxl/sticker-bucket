@@ -36,9 +36,14 @@
         dbus
         openssl
         librsvg
+        libayatana-appindicator
+        (opencv.override (old: {
+          enableGtk3 = true;
+          enableFfmpeg = true;
+        }))
       ];
 
-      buildInputs = with pkgs; [
+      buildInputs = libraries ++ (with pkgs; [
         just
 
         # Tauri
@@ -55,18 +60,10 @@
         curl
         wget
         pkg-config
-        dbus
-        openssl
-        glib
-        gtk3
-        libsoup_3
-        webkitgtk_4_1
-        librsvg
-        libayatana-appindicator
 
         # Algorithm impl in CXX
+        xmake
         cmake
-        (opencv.override (old: {enableGtk2 = true;}))
 
         # OpenCV algorithm test
         (python3.withPackages (ps:
@@ -75,7 +72,7 @@
             numpy
             (opencv4.override {enableGtk2 = true;})
           ]))
-      ];
+      ]);
     in rec {
       # Executed by `nix build`
       packages = rec {

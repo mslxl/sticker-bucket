@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::library::StickyThumb;
+use crate::library::{Sticky, StickyThumb};
 use anyhow::Result;
 use rusqlite::Connection;
 use tauri::{Manager, Runtime};
@@ -118,8 +118,20 @@ pub async fn search_sticky(
 ) -> Result<Vec<StickyThumb>, String> {
     let guard = state.conn.lock().await;
     let conn: &Connection = &guard;
-    library::search_sticky(&state, conn, &stmt, page)
+    library::search_sticky(&state, conn, &stmt, page-1)
 }
+
+
+#[tauri::command]
+pub async fn count_search_sticky_page(
+    state: tauri::State<'_, StickyDBState>,
+    stmt: String,
+) -> Result<i32, String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::count_search_sticky_page(conn, &stmt)
+}
+
 
 #[tauri::command]
 pub async fn search_tag_ns(
@@ -160,4 +172,14 @@ pub async fn is_path_blacklist(
     let guard = state.conn.lock().await;
     let conn: &Connection = &guard;
     library::is_path_blacklist(conn, path)
+}
+
+#[tauri::command]
+pub async fn get_sticky_by_id(
+    state: tauri::State<'_, StickyDBState>,
+    id: i64
+) -> Result<Sticky, String> {
+    let guard = state.conn.lock().await;
+    let conn: &Connection = &guard;
+    library::get_sticky_by_id(&state, conn, id)
 }

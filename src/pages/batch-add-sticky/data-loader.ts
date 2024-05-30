@@ -16,7 +16,7 @@ export async function listImageInFolder(path: string): Promise<string[]> {
     await Promise.all(
       map(
         (entry: DirEntry) => {
-          if (entry.isDirectory) {
+          if (entry.isDirectory && !entry.name.startsWith(".")) {
             return join(path, entry.name).then(listImageInFolder);
           } else {
             return join(path, entry.name);

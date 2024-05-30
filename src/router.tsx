@@ -2,11 +2,16 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { Suspense, lazy } from "react";
 
 const PageMain = lazy(() => import("@/pages/main"));
-const PageMainAll = lazy(() => import("@/pages/main/all"));
+const PageStickyListViewer = lazy(() => import("@/pages/main/viewer"));
 const PageMainSettings = lazy(() => import("@/pages/main/settings"));
 
 const PageAddFolder = lazy(() => import("@/pages/batch-add-sticky"));
-import {batchAddStickyLoader} from "@/pages/batch-add-sticky/data-loader"
+import { batchAddStickyLoader } from "@/pages/batch-add-sticky/data-loader";
+
+const PageViewer = lazy(() => import("@/pages/viewer"));
+import stickyDataLoader from "./pages/viewer/stickyDataloader";
+
+const PageError = lazy(() => import("@/pages/error"));
 
 import { ModalStackProvider } from "@/store/modal";
 import useTheme from "./lib/hook/useDarkMode";
@@ -18,18 +23,34 @@ const router = createBrowserRouter([
     children: [
       {
         path: "/",
-        element: <PageMainAll />,
+        element: <PageStickyListViewer />,
+      },
+      {
+        path: "/list/:page",
+        element: <PageStickyListViewer />,
+      },
+      {
+        path: "/list/:stmt/:page",
+        element: <PageStickyListViewer />,
       },
       {
         path: "/settings",
         element: <PageMainSettings />,
       },
     ],
+    errorElement: <PageError />,
   },
   {
     path: "/add/folder",
     element: <PageAddFolder />,
-    loader: batchAddStickyLoader
+    loader: batchAddStickyLoader,
+    errorElement: <PageError />,
+  },
+  {
+    path: "/viewer/:stickyId",
+    element: <PageViewer />,
+    loader: stickyDataLoader as any,
+    errorElement: <PageError />,
   },
 ]);
 
