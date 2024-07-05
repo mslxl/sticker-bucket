@@ -41,6 +41,7 @@
           enableGtk3 = true;
           enableFfmpeg = true;
         }))
+        llvmPackages.libclang.lib
       ];
 
       buildInputs = libraries ++ (with pkgs; [
@@ -59,6 +60,11 @@
 
         curl
         wget
+        (with llvmPackages; [
+          llvm
+          libclang.lib
+          clang
+        ])
         pkg-config
 
         # Algorithm impl in CXX
@@ -76,7 +82,9 @@
     in rec {
       # Executed by `nix build`
       packages = rec {
-        stickybucket = pkgs.callPackage ./stickybucket.nix {};
+        stickybucket = pkgs.callPackage ./stickybucket.nix {
+          inherit libraries;
+        };
         default = stickybucket;
       };
 
@@ -98,6 +106,7 @@
         '';
 
         WEBKIT_DISABLE_COMPOSITING_MODE = "1";
+        LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
         # Specify the rust-src path (many editors rely on this)
         RUST_SRC_PATH = "${rust-toolchain.rust-src}/lib/rustlib/src/rust/library";
       };
