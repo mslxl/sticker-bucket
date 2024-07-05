@@ -1,29 +1,21 @@
 {
   lib,
   stdenv,
-  stdenvNoCC,
   rustPlatform,
   cargo,
-  esbuild,
   buildGoModule,
   fetchFromGitHub,
   cargo-tauri,
+  esbuild,
   wrapGAppsHook3,
   nodejs,
   pkg-config,
   rustc,
-  gtk3,
-  cairo,
-  gdk-pixbuf,
-  glib,
-  librsvg,
-  dbus,
-  openssl,
-  webkitgtk_4_1,
-  jq,
-  moreutils,
-  cacert,
   libayatana-appindicator,
+  pnpm,
+  llvmPackages,
+
+  libraries ? lib.throw "libraries must be specified"
 }:
 stdenv.mkDerivation rec {
   pname = "stickybucket";
@@ -39,36 +31,13 @@ stdenv.mkDerivation rec {
     --replace-fail "libayatana-appindicator3.so.1" "${libayatana-appindicator}/lib/libayatana-appindicator3.so.1"
   '';
 
-  pnpm-deps = stdenvNoCC.mkDerivation {
+  pnpmDeps = pnpm.fetchDeps {
     pname = "${pname}-pnpm-deps";
     inherit src version;
-
-    nativeBuildInputs = [
-      jq
-      moreutils
-      nodejs.pkgs.pnpm
-      cacert
-    ];
-
-    installPhase = ''
-      export HOME=$(mktemp -d)
-      pnpm config set store-dir $out
-      # use --ignore-script and --no-optional to avoid downloading binaries
-      # use --frozen-lockfile to avoid checking git deps
-      pnpm install --frozen-lockfile --no-optional --ignore-script
-
-      # Remove timestamp and sort the json files
-      rm -rf $out/v3/tmp
-      for f in $(find $out -name "*.json"); do
-          sed -i -E -e 's/"checkedAt":[0-9]+,//g' $f
-          jq --sort-keys . $f | sponge $f
-      done
-    '';
-
-    dontFixup = true;
-    outputHashMode = "recursive";
-    outputHash = "sha256-QpAMTVtcnjMxXpI2mp30PIw78yHXJE6B8H4Pn9ErM3U=";
+    hash = "sha256-23Eph8mPnfKjKioytrAZ1tVAG6kbYx/LVMU+tL66ym0=";
   };
+  pnpmRoot = "..";
+
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ./src-tauri/Cargo.lock;
   };
@@ -78,21 +47,16 @@ stdenv.mkDerivation rec {
     cargo
     rustc
     cargo-tauri
-    wrapGAppsHook3
-    nodejs.pkgs.pnpm
+    nodejs
+    llvmPackages.clang
+    pnpm.configHook
     pkg-config
+    wrapGAppsHook3
   ];
 
-  buildInputs = [
-    webkitgtk_4_1
-    gtk3
-    cairo
-    gdk-pixbuf
-    glib
-    dbus
-    openssl
-    librsvg
-  ];
+  buildInputs = libraries;
+
+  LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
   ESBUILD_BINARY_PATH = "${lib.getExe (esbuild.override {
     buildGoModule = args:
       buildGoModule (args
@@ -108,13 +72,13 @@ stdenv.mkDerivation rec {
         });
   })}";
 
-  preBuild = ''
-    export HOME=$(mktemp -d)
-    pnpm config set store-dir ${pnpm-deps}
+  preConfigure = ''
+    # pnpm.configHook has to write to .., as our sourceRoot is set to src-tauri
+    # TODO: move frontend into its own drv
     chmod +w ..
-    pnpm install --offline --frozen-lockfile --no-optional --ignore-script
-    chmod -R +w ../node_modules
-    pnpm rebuild
+  '';
+
+  preBuild = ''
     # Use cargo-tauri from nixpkgs instead of pnpm tauri from npm
     cargo tauri build -b deb
   '';
