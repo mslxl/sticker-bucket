@@ -1,5 +1,5 @@
 [package]
-name = "stickybucket"
+name = "stickerbucket"
 version = "0.0.0"
 description = "A simple manager of stickies"
 authors = ["mslxl <i@mslxl.com>"]

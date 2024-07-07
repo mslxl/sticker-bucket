@@ -4,22 +4,22 @@ import cfg from '@/store/settings'
 
 export default function DatabaseSettingSection() {
 
-    const [stickyDataFolder, setStickyDataFolder] = useAtom(cfg.database.stickyDir)
+    const [stickerDataFolder, setStickerDataFolder] = useAtom(cfg.database.stickerDir)
 
 
   return (
     <ul>
       <li className="border-t py-2">
         <PrefFile
-          leading="Sticky Data Folder"
-          value={stickyDataFolder}
+          leading="Sticker Data Folder"
+          value={stickerDataFolder}
           open
           option={{
-            title: 'Open sticky data folder',
+            title: 'Open sticker data folder',
             directory: true,
             recursive: false
           }}
-          onValueChange={setStickyDataFolder}
+          onValueChange={setStickerDataFolder}
           description={() => <span>Where stickies and databse located in.<br/><em>*Effects after restart</em></span>}
         />
       </li>

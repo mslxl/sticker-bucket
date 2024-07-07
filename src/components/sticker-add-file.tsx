@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as dialog from "@tauri-apps/plugin-dialog";
 import { Button } from "./ui/button";
-import StickyEditor, { StickyEditorRef } from "./sticky-editor";
+import StickerEditor, { StickerEditorRef } from "./sticker-editor";
 import { error, info } from "@tauri-apps/plugin-log";
 import {
   AlertDialogCancel,
@@ -11,18 +11,18 @@ import {
 import { LuCheck, LuX } from "react-icons/lu";
 import { Tag } from "./tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
-import { createPictureSticky, hasStickyFile } from "@/lib/cmd/library";
+import { createPictureSticker, hasStickerFile } from "@/lib/cmd/library";
 import { unreachable } from "@/lib/sys";
 import { Checkbox } from "./ui/checkbox";
 import * as fs from "@tauri-apps/plugin-fs";
 import { imageFliter } from "@/const";
 
-interface StickyAddDialogProps {
+interface StickerAddDialogProps {
   resolve: () => void;
   reject: () => void;
 }
 
-export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
+export default function StickerAddDialog({ resolve }: StickerAddDialogProps) {
   const dialogVisible = useRef(false);
   const [imagePath, setImagePath] = useState<string>();
   const [name, setName] = useState("");
@@ -33,14 +33,14 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
 
   const dialogHandle = useDialog();
 
-  const editorRef = useRef<StickyEditorRef>(null);
+  const editorRef = useRef<StickerEditorRef>(null);
 
   useEffect(() => {
     if (!dialogVisible.current) {
       dialogVisible.current = true;
       dialog
         .open({
-          title: "Select Sticky Image",
+          title: "Select Sticker Image",
           filters: imageFliter
         })
         .then((res) => {
@@ -77,9 +77,9 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
       if (!(await valid())) {
         return;
       }
-      if (await hasStickyFile(imagePath!)) {
+      if (await hasStickerFile(imagePath!)) {
         const cont = await dialogHandle.ask(
-          "Sticky file was included in library, continue to add it?",
+          "Sticker file was included in library, continue to add it?",
           {
             title: "File Already Exist",
             okLabel: "Continue",
@@ -88,7 +88,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
         if (!cont) return;
       }
       info(
-        `Add sticky ${JSON.stringify({
+        `Add sticker ${JSON.stringify({
           imagePath,
           name,
           pkg,
@@ -97,8 +97,8 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
         })}`
       );
       try {
-        await createPictureSticky(name, pkg, imagePath!, tags);
-        info("Add sticky successfully")
+        await createPictureSticker(name, pkg, imagePath!, tags);
+        info("Add sticker successfully")
       } catch (reason: any) {
         error(reason)
         dialogHandle.message(reason, {
@@ -124,7 +124,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
   return (
     <>
       <AlertDialogHeader className="flex flex-row items-center justify-end mb-1">
-        <AlertDialogTitle>Add Sticky</AlertDialogTitle>
+        <AlertDialogTitle>Add Sticker</AlertDialogTitle>
         <span className="flex-1" />
         <div>
           <AlertDialogCancel>
@@ -149,7 +149,7 @@ export default function StickyAddDialog({ resolve }: StickyAddDialogProps) {
           Delete original file
         </label>
       </div>
-      <StickyEditor
+      <StickerEditor
         ref={editorRef}
         name={name}
         pkg={pkg}

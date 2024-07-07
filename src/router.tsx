@@ -2,14 +2,14 @@ import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import { Suspense, lazy } from "react";
 
 const PageMain = lazy(() => import("@/pages/main"));
-const PageStickyListViewer = lazy(() => import("@/pages/main/viewer"));
+const PageStickerListViewer = lazy(() => import("@/pages/main/viewer"));
 const PageMainSettings = lazy(() => import("@/pages/main/settings"));
 
-const PageAddFolder = lazy(() => import("@/pages/batch-add-sticky"));
-import { batchAddStickyLoader } from "@/pages/batch-add-sticky/data-loader";
+const PageAddFolder = lazy(() => import("@/pages/batch-add-sticker"));
+import { batchAddStickerLoader } from "@/pages/batch-add-sticker/data-loader";
 
 const PageViewer = lazy(() => import("@/pages/viewer"));
-import stickyDataLoader from "./pages/viewer/stickyDataloader";
+import stickerDataLoader from "./pages/viewer/stickerDataloader";
 
 const PageError = lazy(() => import("@/pages/error"));
 
@@ -23,15 +23,15 @@ const router = createBrowserRouter([
     children: [
       {
         path: "/",
-        element: <PageStickyListViewer />,
+        element: <PageStickerListViewer />,
       },
       {
         path: "/list/:page",
-        element: <PageStickyListViewer />,
+        element: <PageStickerListViewer />,
       },
       {
         path: "/list/:stmt/:page",
-        element: <PageStickyListViewer />,
+        element: <PageStickerListViewer />,
       },
       {
         path: "/settings",
@@ -43,13 +43,13 @@ const router = createBrowserRouter([
   {
     path: "/add/folder",
     element: <PageAddFolder />,
-    loader: batchAddStickyLoader,
+    loader: batchAddStickerLoader,
     errorElement: <PageError />,
   },
   {
-    path: "/viewer/:stickyId",
+    path: "/viewer/:stickerId",
     element: <PageViewer />,
-    loader: stickyDataLoader as any,
+    loader: stickerDataLoader as any,
     errorElement: <PageError />,
   },
 ]);

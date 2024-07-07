@@ -9,12 +9,12 @@ pub fn build_search_sql_stmt(search: Search, page: i32, page_size: i32) -> Resul
         meta,
     } = search;
     let stmt = if tags.is_empty() {
-        build_main_stem("sticky", &keywords, &meta, false)
+        build_main_stem("sticker", &keywords, &meta, false)
     } else {
         Ok(format!(
-            "WITH taged_sticky AS ({}) {}",
+            "WITH taged_sticker AS ({}) {}",
             build_sub_query_tages(&tags).unwrap(),
-            build_main_stem("taged_sticky", &keywords, &meta, false)?
+            build_main_stem("taged_sticker", &keywords, &meta, false)?
         ))
     };
     stmt.map(|mut stmt: String| {
@@ -31,12 +31,12 @@ pub fn build_count_sql_stmt(search: Search) -> Result<String, String>{
         meta,
     } = search;
     let stmt = if tags.is_empty() {
-        build_main_stem("sticky", &keywords, &meta, true)
+        build_main_stem("sticker", &keywords, &meta, true)
     } else {
         Ok(format!(
-            "WITH taged_sticky AS ({}) {}",
+            "WITH taged_sticker AS ({}) {}",
             build_sub_query_tages(&tags).unwrap(),
-            build_main_stem("taged_sticky", &keywords, &meta, true)?
+            build_main_stem("taged_sticker", &keywords, &meta, true)?
         ))
     };
     stmt
@@ -134,16 +134,16 @@ fn build_main_stem(
 Result is like:
 
 ```sql
-SELECT sticky.*
-FROM sticky
-         JOIN sticky_tag ON sticky.id = sticky_tag.sticky
-WHERE sticky_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon'))
-GROUP BY sticky.id
-HAVING COUNT(DISTINCT sticky_tag.tag) = 1
-   AND sticky.id NOT IN (SELECT sticky.id
-                         FROM sticky
-                                  JOIN sticky_tag ON sticky.id = sticky_tag.sticky
-                                  JOIN tag ON sticky_tag.tag = tag.id
+SELECT sticker.*
+FROM sticker
+         JOIN sticker_tag ON sticker.id = sticker_tag.sticker
+WHERE sticker_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon'))
+GROUP BY sticker.id
+HAVING COUNT(DISTINCT sticker_tag.tag) = 1
+   AND sticker.id NOT IN (SELECT sticker.id
+                         FROM sticker
+                                  JOIN sticker_tag ON sticker.id = sticker_tag.sticker
+                                  JOIN tag ON sticker_tag.tag = tag.id
                          WHERE (tag.namespace = 'misc' AND tag.value = 'nsfw'));
 
 ```
@@ -155,13 +155,13 @@ fn build_sub_query_tages(tags: &Vec<ParsedTag>) -> Option<String> {
     let tags_has_all = tags.iter().filter(|tag| !tag.not).collect::<Vec<_>>();
     let tags_none_of = tags.iter().filter(|tag| tag.not).collect::<Vec<_>>();
 
-    let mut select_sticky =
-        "SELECT sticky.* FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky WHERE"
+    let mut select_sticker =
+        "SELECT sticker.* FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker WHERE"
             .to_string();
 
     let has_all_cond = if !tags_has_all.is_empty() {
         Some(format!(
-            " sticky_tag.tag IN (SELECT id as tag FROM tag WHERE {}) GROUP BY sticky.id HAVING COUNT(DISTINCT sticky_tag.tag) = {}",
+            " sticker_tag.tag IN (SELECT id as tag FROM tag WHERE {}) GROUP BY sticker.id HAVING COUNT(DISTINCT sticker_tag.tag) = {}",
             tags_has_all
                 .iter()
                 .map(|t| {
@@ -180,7 +180,7 @@ fn build_sub_query_tages(tags: &Vec<ParsedTag>) -> Option<String> {
 
     let none_of_cond = if !tags_none_of.is_empty() {
         Some(format!(
-            " sticky.id NOT IN (SELECT sticky.id FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky JOIN tag ON sticky_tag.tag = tag.id WHERE {})",
+            " sticker.id NOT IN (SELECT sticker.id FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker JOIN tag ON sticker_tag.tag = tag.id WHERE {})",
             tags_none_of
                 .iter()
                 .map(|t| {
@@ -196,17 +196,17 @@ fn build_sub_query_tages(tags: &Vec<ParsedTag>) -> Option<String> {
         None
     };
     if let Some(first_cond) = has_all_cond {
-        select_sticky.push_str(&first_cond);
+        select_sticker.push_str(&first_cond);
         if let Some(second_cond) = none_of_cond {
-            select_sticky.push_str(" AND");
-            select_sticky.push_str(&second_cond);
+            select_sticker.push_str(" AND");
+            select_sticker.push_str(&second_cond);
         }
     } else if let Some(second_cond) = none_of_cond {
-        select_sticky.push_str(&second_cond);
-        select_sticky.push_str(" GROUP BY sticky.id");
+        select_sticker.push_str(&second_cond);
+        select_sticker.push_str(" GROUP BY sticker.id");
     }
 
-    Some(select_sticky)
+    Some(select_sticker)
 }
 
 #[cfg(test)]
@@ -252,7 +252,7 @@ mod tests {
     fn test_stem() {
         assert_eq!(
             build_main_stem(
-                "sticky",
+                "sticker",
                 &vec![
                     ParsedKeyword {
                         not: false,
@@ -266,11 +266,11 @@ mod tests {
                 &Vec::new(),
                 false
             ).unwrap(),
-            String::from("SELECT inp.* FROM sticky as inp JOIN package on inp.package = package.id WHERE package.name = '穗穗'")
+            String::from("SELECT inp.* FROM sticker as inp JOIN package on inp.package = package.id WHERE package.name = '穗穗'")
         );
         assert_eq!(
             build_main_stem(
-                "sticky",
+                "sticker",
                 &vec![
                 ],
                 &vec![
@@ -282,7 +282,7 @@ mod tests {
                 ],
                 false
             ).unwrap(),
-            String::from("SELECT inp.* FROM sticky as inp WHERE inp.name LIKE '%刷%' AND inp.name NOT LIKE '%朱重八%'")
+            String::from("SELECT inp.* FROM sticker as inp WHERE inp.name LIKE '%刷%' AND inp.name NOT LIKE '%朱重八%'")
         );
     }
 
@@ -297,7 +297,7 @@ mod tests {
                     not: false,
                 },
             ]),
-            Some("SELECT sticky.* FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky WHERE sticky_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticky.id HAVING COUNT(DISTINCT sticky_tag.tag) = 1".to_string())
+            Some("SELECT sticker.* FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker WHERE sticker_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticker.id HAVING COUNT(DISTINCT sticker_tag.tag) = 1".to_string())
         );
         assert_eq!(
             build_sub_query_tages(&vec![
@@ -307,7 +307,7 @@ mod tests {
                     namespace: String::from("misc")
                 }
             ]),
-            Some("SELECT sticky.* FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky WHERE sticky_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticky.id HAVING COUNT(DISTINCT sticky_tag.tag) = 1 AND sticky.id NOT IN (SELECT sticky.id FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky JOIN tag ON sticky_tag.tag = tag.id WHERE (tag.namespace = 'misc' AND tag.value = 'nsfw'))".to_string())
+            Some("SELECT sticker.* FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker WHERE sticker_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticker.id HAVING COUNT(DISTINCT sticker_tag.tag) = 1 AND sticker.id NOT IN (SELECT sticker.id FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker JOIN tag ON sticker_tag.tag = tag.id WHERE (tag.namespace = 'misc' AND tag.value = 'nsfw'))".to_string())
         );
         assert_eq!(
             build_sub_query_tages(&vec![
@@ -322,7 +322,7 @@ mod tests {
                     namespace: String::from("misc")
                 }
             ]),
-            Some("SELECT sticky.* FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky WHERE sticky_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticky.id HAVING COUNT(DISTINCT sticky_tag.tag) = 1 AND sticky.id NOT IN (SELECT sticky.id FROM sticky JOIN sticky_tag ON sticky.id = sticky_tag.sticky JOIN tag ON sticky_tag.tag = tag.id WHERE (tag.namespace = 'misc' AND tag.value = 'nsfw'))".to_string())
+            Some("SELECT sticker.* FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker WHERE sticker_tag.tag IN (SELECT id as tag FROM tag WHERE (tag.namespace = 'female' AND tag.value = 'lolicon')) GROUP BY sticker.id HAVING COUNT(DISTINCT sticker_tag.tag) = 1 AND sticker.id NOT IN (SELECT sticker.id FROM sticker JOIN sticker_tag ON sticker.id = sticker_tag.sticker JOIN tag ON sticker_tag.tag = tag.id WHERE (tag.namespace = 'misc' AND tag.value = 'nsfw'))".to_string())
         );
     }
 }

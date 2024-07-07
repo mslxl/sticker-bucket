@@ -24,34 +24,34 @@ create index package_author_index
 create index package_name_index
     on package (name);
 
-create table sticky
+create table sticker
 (
     id          integer                            not null
-        constraint sticky_pk
+        constraint sticker_pk
             primary key autoincrement,
     filename    text,
     create_date datetime default current_timestamp not null,
     modify_date datetime default current_timestamp not null,
     name        text                               not null,
     package     integer                            not null
-        constraint sticky_package_id_fk
+        constraint sticker_package_id_fk
             references package,
     sensor_id   TEXT,
     width       integer,
     height      integer,
     type        TEXT                               not null,
-    constraint check_sticky_has_file
+    constraint check_sticker_has_file
         check (type != 'PIC' OR (type = 'PIC' AND filename IS NOT NULL))
 );
 
-create index sticky_create_date_index
-    on sticky (create_date);
+create index sticker_create_date_index
+    on sticker (create_date);
 
-create index sticky_modify_date_index
-    on sticky (modify_date);
+create index sticker_modify_date_index
+    on sticker (modify_date);
 
-create index sticky_sensor_id_index
-    on sticky (sensor_id);
+create index sticker_sensor_id_index
+    on sticker (sensor_id);
 
 create table subscription
 (
@@ -74,16 +74,16 @@ create table tag
     value     text    not null
 );
 
-create table sticky_tag
+create table sticker_tag
 (
-    sticky integer not null
-        constraint sticky_id_fk
-            references sticky,
+    sticker integer not null
+        constraint sticker_id_fk
+            references sticker,
     tag    integer not null
         constraint tag_id_fk
             references tag,
-    constraint sticky_tag_pk
-        primary key (tag, sticky)
+    constraint sticker_tag_pk
+        primary key (tag, sticker)
 );
 
 create index tag_namespace_value_index

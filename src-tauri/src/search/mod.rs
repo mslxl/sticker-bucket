@@ -127,7 +127,7 @@ fn parse_block(input: &str) -> IResult<&str, &str> {
     alt((parse_identifier, parse_str))(input)
 }
 
-fn parse_sticky_tag(input: &str) -> IResult<&str, ParsedTag> {
+fn parse_sticker_tag(input: &str) -> IResult<&str, ParsedTag> {
     map(
         tuple((opt(tag("-")), parse_block, tag(":"), parse_block)),
         |(prefix, namespace, _, value)| ParsedTag {
@@ -168,7 +168,7 @@ fn parse_keyward(input: &str) -> IResult<&str, ParsedKeyword> {
 fn parse_search_item(input: &str) -> IResult<&str, ParsedItem> {
     alt((
         map(parse_meta_tag, |t| ParsedItem::Meta(t)),
-        map(parse_sticky_tag, |t| ParsedItem::Tag(t)),
+        map(parse_sticker_tag, |t| ParsedItem::Tag(t)),
         map(parse_keyward, |t| ParsedItem::Kwd(t)),
     ))(input)
 }

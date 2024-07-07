@@ -42,7 +42,7 @@ export default function DisplaySettingSection() {
               <li className="py-2">
                 <PrefSwitch
                   leading="Hide NSFW"
-                  description="Never display sticky with specify tag"
+                  description="Never display sticker with specify tag"
                   disabled={blurNsfw}
                   checked={hideNsfw}
                   onCheckedChange={setHideNsfw}
@@ -51,7 +51,7 @@ export default function DisplaySettingSection() {
               <li className="border-t py-2">
                 <PrefSwitch
                   leading="Blur NSFW"
-                  description="Blur sticky with specify tag"
+                  description="Blur sticker with specify tag"
                   disabled={hideNsfw}
                   checked={blurNsfw}
                   onCheckedChange={setBlurNsfw}
@@ -60,7 +60,7 @@ export default function DisplaySettingSection() {
               <li className="border-t py-2">
                 <PrefList
                   leading="NSFW Tag"
-                  description="The sticky that has specify tag to be hidden or blur"
+                  description="The sticker that has specify tag to be hidden or blur"
                   items={nsfwTags}
                   onItemsChanged={setNsfwTags}
                   itemZod={ZOD_TAG}

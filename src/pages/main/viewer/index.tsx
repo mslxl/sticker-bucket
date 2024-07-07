@@ -1,4 +1,4 @@
-import StickyList from "@/components/sticky-list";
+import StickerList from "@/components/sticker-list";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -51,8 +51,8 @@ export default function AllPage() {
 
   const pushDialog = useSetAtom(pushDialogAtom);
   const popModal = useSetAtom(popModalAtom);
-  function showStickyAddDialog() {
-    pushDialog(lazy(() => import("@/components/sticky-add-file"))).finally(
+  function showStickerAddDialog() {
+    pushDialog(lazy(() => import("@/components/sticker-add-file"))).finally(
       () => {
         popModal();
       }
@@ -63,7 +63,7 @@ export default function AllPage() {
       popModal();
     });
   }
-  function addStickyFromFolder() {
+  function addStickerFromFolder() {
     navigate("add/folder");
   }
 
@@ -98,9 +98,9 @@ export default function AllPage() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onClick={showStickyAddDialog}>
+              <DropdownMenuItem onClick={showStickerAddDialog}>
                 <LuImagePlus className="mr-2 h-4 w-4" />
-                <span>Add Sticky</span>
+                <span>Add Sticker</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={showTextAddDialog}>
                 <LuTextCursorInput className="mr-2 h-4 w-4" />
@@ -113,7 +113,7 @@ export default function AllPage() {
                 </DropdownMenuSubTrigger>
                 <DropdownMenuPortal>
                   <DropdownMenuSubContent>
-                    <DropdownMenuItem onClick={addStickyFromFolder}>
+                    <DropdownMenuItem onClick={addStickerFromFolder}>
                       <LuFolderPlus className="mr-2 h-4 w-4" />
                       <span>Add Stickies From Folder</span>
                     </DropdownMenuItem>
@@ -124,7 +124,7 @@ export default function AllPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </nav>
-      <StickyList
+      <StickerList
         className="h-[calc(100%-4rem)] overflow-y-auto p-4"
         stmt={`${searchInput} ${additionStatement}`}
         page={page}

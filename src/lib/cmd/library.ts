@@ -1,16 +1,16 @@
 import { Tag } from "@/components/tag-viewer";
 import { invoke } from "@tauri-apps/api/core";
-export const getDefaultStickyDataDir = () =>
-  invoke<string>("get_default_sticky_dir");
+export const getDefaultStickerDataDir = () =>
+  invoke<string>("get_default_sticker_dir");
 
-export const createPictureSticky = (
+export const createPictureSticker = (
   name: string,
   pkg: string,
   path: string,
   tags: Tag[],
   withExt: boolean = true
 ) =>
-  invoke<void>("create_pic_sticky", {
+  invoke<void>("create_pic_sticker", {
     name,
     pkg,
     path,
@@ -18,11 +18,11 @@ export const createPictureSticky = (
     withExt,
   });
 
-export const createTextSticky = (content: string, pkg: string, tags: Tag[]) =>
-  invoke<void>("create_text_sticky", { content, pkg, tags });
+export const createTextSticker = (content: string, pkg: string, tags: Tag[]) =>
+  invoke<void>("create_text_sticker", { content, pkg, tags });
 
-export const hasStickyFile = (path: string, withExt: boolean = true) =>
-  invoke<boolean>("has_sticky_file", {
+export const hasStickerFile = (path: string, withExt: boolean = true) =>
+  invoke<boolean>("has_sticker_file", {
     path,
     withExt,
   });
@@ -30,17 +30,17 @@ export const hasStickyFile = (path: string, withExt: boolean = true) =>
 export const searchPackage = (keyword: string) =>
   invoke<string[]>("search_package", { keyword });
 
-export type StickyTY = "PIC" | "TEXT";
+export type StickerTY = "PIC" | "TEXT";
 
-export type StickyThumb = StickyTextThumb | StickyImgThumb;
+export type StickerThumb = StickerTextThumb | StickerImgThumb;
 
-export interface StickyTextThumb {
+export interface StickerTextThumb {
   id: number;
   name: string;
   ty: "TEXT";
 }
 
-export interface StickyImgThumb {
+export interface StickerImgThumb {
   id: number;
   path: string;
   name: string;
@@ -49,17 +49,17 @@ export interface StickyImgThumb {
   ty: "PIC";
 }
 
-export const searchSticky = (
+export const searchSticker = (
   stmt: string,
   page: number = 0
-): Promise<StickyThumb[]> =>
-  invoke("search_sticky", {
+): Promise<StickerThumb[]> =>
+  invoke("search_sticker", {
     stmt,
     page,
   });
 
-export const countSearchStickyPage = (stmt: string): Promise<number> =>
-  invoke("count_search_sticky_page", { stmt });
+export const countSearchStickerPage = (stmt: string): Promise<number> =>
+  invoke("count_search_sticker_page", { stmt });
 
 export const searchTagNamespace = (prefix: string): Promise<string[]> =>
   invoke("search_tag_ns", { prefix });
@@ -75,9 +75,9 @@ export const blacklistPath = (path: string): Promise<void> =>
 export const isPathBlacklist = (path: string): Promise<boolean> =>
   invoke("is_path_blacklist", { path });
 
-export type Sticky = StickyText | StickyImg;
+export type Sticker = StickerText | StickerImg;
 
-export interface StickyImg {
+export interface StickerImg {
   id: number;
   path: string;
   name: string;
@@ -87,7 +87,7 @@ export interface StickyImg {
   tags: Tag[];
   ty: "PIC";
 }
-export interface StickyText {
+export interface StickerText {
   id: number;
   name: string;
   package: string;
@@ -95,5 +95,5 @@ export interface StickyText {
   ty: "PIC" | "TEXT";
 }
 
-export const getStickyById = (id: number): Promise<Sticky> =>
-  invoke("get_sticky_by_id", { id });
+export const getStickerById = (id: number): Promise<Sticker> =>
+  invoke("get_sticker_by_id", { id });
