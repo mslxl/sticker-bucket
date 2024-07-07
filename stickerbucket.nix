@@ -18,7 +18,7 @@
   libraries ? lib.throw "libraries must be specified"
 }:
 stdenv.mkDerivation rec {
-  pname = "stickybucket";
+  pname = "stickerbucket";
   version = "0.0.0";
   src = builtins.path {
     name = "source";

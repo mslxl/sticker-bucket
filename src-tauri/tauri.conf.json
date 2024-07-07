@@ -1,7 +1,7 @@
 {
-  "productName": "Sticky Bucket",
+  "productName": "Sticker Bucket",
   "version": "0.0.0",
-  "identifier": "com.mslxl.stickybucket",
+  "identifier": "com.mslxl.stickerbucket",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Sticky Bucket",
+        "title": "Sticker Bucket",
         "width": 800,
         "height": 600
       }

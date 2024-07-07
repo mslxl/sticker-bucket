@@ -1,4 +1,4 @@
-# Sticky Bucket
+# Sticker Bucket
 
 
 <div align="center">
@@ -11,10 +11,10 @@
 <tr>
 <td>
 
-![GitHub last commit](https://img.shields.io/github/last-commit/mslxl/sticky-bucket?style=for-the-badge)
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/mslxl/sticky-bucket?style=for-the-badge)
-![GitHub](https://img.shields.io/github/license/mslxl/sticky-bucket?style=for-the-badge)
-![Release](https://img.shields.io/github/v/release/mslxl/sticky-bucket?include_prereleases&style=for-the-badge)
+![GitHub last commit](https://img.shields.io/github/last-commit/mslxl/sticker-bucket?style=for-the-badge)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/mslxl/sticker-bucket?style=for-the-badge)
+![GitHub](https://img.shields.io/github/license/mslxl/sticker-bucket?style=for-the-badge)
+![Release](https://img.shields.io/github/v/release/mslxl/sticker-bucket?include_prereleases&style=for-the-badge)
 
 </td>
 
@@ -35,13 +35,13 @@
 
 ### 标签
 
-StickyBucket 采用类似 EHentai 的标签。标签具有 namespace 和 value 两部分。作者推荐采用类似 EHentai 的标签分类机制进行管理。例如 `character:amiya parody:arknights` 即为《明日方舟》中的阿米娅。
+StickerBucket 采用类似 EHentai 的标签。标签具有 namespace 和 value 两部分。作者推荐采用类似 EHentai 的标签分类机制进行管理。例如 `character:amiya parody:arknights` 即为《明日方舟》中的阿米娅。
 
 后续可能会采用智能算法自动推算 `character`、`parody` 等 namespace 的标签
 
 ### 搜索
 
-StickyBucket 可以搜索名称中的关键字、标签和元信息。例如 `nanoda character:yukikaze parody:"azur lane" -misc:nsfw $package:Inbox $sort:name $order:desc` 即为：
+StickerBucket 可以搜索名称中的关键字、标签和元信息。例如 `nanoda character:yukikaze parody:"azur lane" -misc:nsfw $package:Inbox $sort:name $order:desc` 即为：
 - 名称中含有 `nanoda` 关键字
 - 具有 `character:yukikaze` 标签
 - 具有 `parody:azur lane` 标签
@@ -96,8 +96,8 @@ StickyBucket 可以搜索名称中的关键字、标签和元信息。例如 `na
 
 ```nix
 inputs = {
-    sticky-bucket = {
-        url = "github:mslxl/sticky-bucket";
+    sticker-bucket = {
+        url = "github:mslxl/sticker-bucket";
     };
     # ...
 };
@@ -111,7 +111,7 @@ let
 in {
     environment.systemPackages = with pkgs; [
         # ...
-        inputs.sticky-bucket.packages.${system}.default  
+        inputs.sticker-bucket.packages.${system}.default  
     ];
 }
 ```

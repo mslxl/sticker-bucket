@@ -17,7 +17,7 @@ import clsx from "clsx";
 import { info } from "@tauri-apps/plugin-log";
 import PackageCombobox from "./package-combobox";
 
-export interface StickyEditorRef {
+export interface StickerEditorRef {
   get lockName(): boolean;
   set lockName(value: boolean);
   get lockPackage(): boolean;
@@ -28,7 +28,7 @@ export interface StickyEditorRef {
   reset: () => void;
 }
 
-interface StickyEditorProps {
+interface StickerEditorProps {
   className?: string;
   path?: string;
   lockable?: boolean;
@@ -45,7 +45,7 @@ interface StickyEditorProps {
   tags?: Tag[];
   onTagsChanged?: (tags: Tag[]) => void;
 }
-const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
+const StickerEditor = forwardRef<StickerEditorRef, StickerEditorProps>(
   (
     {
       path,
@@ -60,7 +60,7 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
       onPkgChanged,
       tags,
       onTagsChanged,
-    }: StickyEditorProps,
+    }: StickerEditorProps,
     ref
   ) => {
     const [lockName, setLockName] = useState(false);
@@ -71,7 +71,7 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
     const nameRef = useRef<HTMLInputElement>(null);
 
     function reset() {
-      info("reset sticky editor form");
+      info("reset sticker editor form");
       if (!lockName && nameRef.current) {
         nameRef.current.value = "";
         onNameChanged && onNameChanged("");
@@ -177,6 +177,6 @@ const StickyEditor = forwardRef<StickyEditorRef, StickyEditorProps>(
     );
   }
 );
-StickyEditor.displayName = "StickyEditor";
+StickerEditor.displayName = "StickerEditor";
 
-export default StickyEditor;
+export default StickerEditor;

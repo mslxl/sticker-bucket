@@ -6,14 +6,14 @@ import {
   LuSkipForward,
 } from "react-icons/lu";
 import { useLoaderData } from "react-router-dom";
-import { BatchAddStickyLoaderData } from "./data-loader";
+import { BatchAddStickerLoaderData } from "./data-loader";
 import { useMemo, useRef, useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BatchAddCompleted from "./completed";
 import { Tag } from "@/components/tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
-import StickyEditor, { StickyEditorRef } from "@/components/sticky-editor";
+import StickerEditor, { StickerEditorRef } from "@/components/sticker-editor";
 import * as fs from "@tauri-apps/plugin-fs";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -24,14 +24,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   blacklistPath,
-  createPictureSticky,
-  hasStickyFile,
+  createPictureSticker,
+  hasStickerFile,
 } from "@/lib/cmd/library";
 import { error, info, trace } from "@tauri-apps/plugin-log";
 import { unreachable } from "@/lib/sys";
 
-export default function BatchAddSticky() {
-  const { images } = useLoaderData() as BatchAddStickyLoaderData;
+export default function BatchAddSticker() {
+  const { images } = useLoaderData() as BatchAddStickerLoaderData;
   const [imagesIndex, setImageIndex] = useState(0);
   const [batchAddedCnt, setBatchAddCnt] = useState(0);
   const [allowBackwardCount, setAllowBackwardCount] = useState(0);
@@ -49,7 +49,7 @@ export default function BatchAddSticky() {
   const [del, setDel] = useState(false);
   const dialogHandle = useDialog();
 
-  const editorRef = useRef<StickyEditorRef>(null);
+  const editorRef = useRef<StickerEditorRef>(null);
 
   const progressInTitle = useMemo(
     () => `${imagesIndex + 1}/${images?.length ?? "NaN"}`,
@@ -112,9 +112,9 @@ export default function BatchAddSticky() {
       if (!(await valid())) {
         return;
       }
-      if (await hasStickyFile(imagePath!)) {
+      if (await hasStickerFile(imagePath!)) {
         const cont = await dialogHandle.ask(
-          "Sticky file was included in library, continue to add it?",
+          "Sticker file was included in library, continue to add it?",
           {
             title: "File Already Exist",
             okLabel: "Continue",
@@ -124,7 +124,7 @@ export default function BatchAddSticky() {
       }
 
       info(
-        `Add sticky ${JSON.stringify({
+        `Add sticker ${JSON.stringify({
           imagePath,
           name,
           pkg,
@@ -133,8 +133,8 @@ export default function BatchAddSticky() {
         })} in batch`
       );
       try {
-        await createPictureSticky(name, pkg, imagePath!, tags);
-        info("Add sticky successfully");
+        await createPictureSticker(name, pkg, imagePath!, tags);
+        info("Add sticker successfully");
       } catch (reason: any) {
         error(reason);
         dialogHandle.message(reason, {
@@ -166,7 +166,7 @@ export default function BatchAddSticky() {
         <Button size="icon" variant="ghost" onClick={() => history.back()}>
           <LuArrowLeft className="mr" />
         </Button>
-        <h4 className="text-lg font-semibold">Add Sticky From Folder</h4>
+        <h4 className="text-lg font-semibold">Add Sticker From Folder</h4>
         <span className="pl-2 flex-1">({progressInTitle})</span>
         <div className="space-x-2 flex">
           <span className="rounded-md flex items-center">
@@ -226,7 +226,7 @@ export default function BatchAddSticky() {
             Delete original file
           </label>
         </div>
-        <StickyEditor
+        <StickerEditor
           ref={editorRef}
           name={name}
           pkg={pkg}

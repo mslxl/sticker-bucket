@@ -1,9 +1,9 @@
 import {
-  StickyThumb,
-  countSearchStickyPage,
-  searchSticky,
+  StickerThumb,
+  countSearchStickerPage,
+  searchSticker,
 } from "@/lib/cmd/library";
-import StickyGrid from "./sticky-grid";
+import StickerGrid from "./sticker-grid";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue } from "jotai";
 import cfg from "@/store/settings";
@@ -20,29 +20,29 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-export interface StickyListProps {
+export interface StickerListProps {
   stmt: string;
   className?: string;
   page?: number;
   onPageChange?: (page: number) => void;
 }
 
-export interface StickyListLayoutProps extends Omit<StickyListProps, "stmt"> {
-  stickies: StickyThumb[];
+export interface StickerListLayoutProps extends Omit<StickerListProps, "stmt"> {
+  stickies: StickerThumb[];
 }
 
-export default function StickyList({
+export default function StickerList({
   stmt,
   page = 1,
   onPageChange,
   className,
   ...props
-}: StickyListProps) {
+}: StickerListProps) {
   const hideNSFW = useAtomValue(cfg.display.hideNsfw);
   const nsfwTags = useAtomValue(cfg.display.nsfwTags);
 
   const [status, setStatus] = useState<"ERROR" | "SUCCESS">("SUCCESS");
-  const [stickyData, setStickyData] = useState<StickyThumb[]>([]);
+  const [stickerData, setStickerData] = useState<StickerThumb[]>([]);
   const [totalPage, setTotalPage] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -60,12 +60,12 @@ export default function StickyList({
     }
 
     Promise.all([
-      countSearchStickyPage(toSearchStatement),
-      searchSticky(toSearchStatement, page),
+      countSearchStickerPage(toSearchStatement),
+      searchSticker(toSearchStatement, page),
     ])
-      .then(([pg, sticky]) => {
-        if (sticky && taskId > receivedSearchCounter.current) {
-          setStickyData(sticky);
+      .then(([pg, sticker]) => {
+        if (sticker && taskId > receivedSearchCounter.current) {
+          setStickerData(sticker);
           setTotalPage(pg);
           setStatus("SUCCESS");
         }
@@ -93,7 +93,7 @@ export default function StickyList({
 
   return (
     <div className={className}>
-      <StickyGrid stickies={stickyData} page={page} {...props} />
+      <StickerGrid stickies={stickerData} page={page} {...props} />
       <Pagination className="p-4">
         <PaginationContent>
           {page == 1 ? null : (

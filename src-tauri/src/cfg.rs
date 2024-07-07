@@ -12,7 +12,7 @@ where
 {
     let state_app_handle = app.clone();
     let stores = state_app_handle.state::<StoreCollection<R>>();
-    let path = PathBuf::from("stickybucket.json");
+    let path = PathBuf::from("stickerbucket.json");
     let value = with_store(app, stores, path, f)?;
     Ok(value)
 }

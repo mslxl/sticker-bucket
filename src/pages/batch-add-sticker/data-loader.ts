@@ -6,7 +6,7 @@ import { DirEntry, readDir } from "@tauri-apps/plugin-fs";
 import { info } from "@tauri-apps/plugin-log";
 import { any, filter, flatten, map } from "lodash/fp";
 
-export interface BatchAddStickyLoaderData {
+export interface BatchAddStickerLoaderData {
   images?: string[];
 }
 
@@ -33,9 +33,9 @@ export async function listImageInFolder(path: string): Promise<string[]> {
   );
 }
 
-export async function batchAddStickyLoader(): Promise<BatchAddStickyLoaderData> {
+export async function batchAddStickerLoader(): Promise<BatchAddStickerLoaderData> {
   const folder = await dialog.open({
-    title: "Add Sticky From Folder",
+    title: "Add Sticker From Folder",
     directory: true,
   });
   if (!folder) {

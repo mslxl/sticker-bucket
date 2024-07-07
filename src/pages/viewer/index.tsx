@@ -2,7 +2,7 @@ import InfoView from "@/components/info-view";
 import TagViewer from "@/components/tag-viewer";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Sticky, StickyImg, StickyText } from "@/lib/cmd/library";
+import { Sticker, StickerImg, StickerText } from "@/lib/cmd/library";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import clsx from "clsx";
 import { memo } from "react";
@@ -11,9 +11,9 @@ import { useLoaderData } from "react-router-dom";
 import * as shell from "@tauri-apps/plugin-shell";
 import { useDialog } from "@/lib/hook/useDialog";
 
-const StickyImgOverview = memo(
-  ({ className, sticky }: { className?: string; sticky: StickyImg }) => {
-    const url = convertFileSrc(sticky.path);
+const StickerImgOverview = memo(
+  ({ className, sticker }: { className?: string; sticker: StickerImg }) => {
+    const url = convertFileSrc(sticker.path);
 
     return (
       <div className={clsx("space-y-2", className)}>
@@ -21,61 +21,61 @@ const StickyImgOverview = memo(
           <img src={url} className="rounded-md border" />
         </div>
         <h4 className="text-muted-foreground leading-none whitespace-nowrap overflow-hidden text-ellipsis text-center">
-          {sticky.name}
+          {sticker.name}
         </h4>
       </div>
     );
   }
 );
 
-function StickyTextOverview({
+function StickerTextOverview({
   className,
-  sticky,
+  sticker,
 }: {
   className?: string;
-  sticky: StickyText;
+  sticker: StickerText;
 }) {
   return (
     <div
       className={clsx("whitespace-pre-line border p-4 rounded-md", className)}
     >
-      {sticky.name}
+      {sticker.name}
     </div>
   );
 }
 
-function StickyOverview({
+function StickerOverview({
   className,
-  sticky,
+  sticker,
 }: {
   className?: string;
-  sticky: Sticky;
+  sticker: Sticker;
 }) {
-  if (sticky.ty == "PIC") {
+  if (sticker.ty == "PIC") {
     return (
-      <StickyImgOverview className={className} sticky={sticky as StickyImg} />
+      <StickerImgOverview className={className} sticker={sticker as StickerImg} />
     );
-  } else if (sticky.ty == "TEXT") {
+  } else if (sticker.ty == "TEXT") {
     return (
-      <StickyTextOverview className={className} sticky={sticky as StickyText} />
+      <StickerTextOverview className={className} sticker={sticker as StickerText} />
     );
   } else {
     return (
       <InfoView
-        title={`Unrecongized type of sticky: ${sticky.ty} (id: ${sticky.id})`}
+        title={`Unrecongized type of sticker: ${sticker.ty} (id: ${sticker.id})`}
         description="Please check the database"
       />
     );
   }
 }
 
-export default function StickyView() {
-  const { sticky }: { sticky: Sticky } = useLoaderData() as any;
+export default function StickerView() {
+  const { sticker }: { sticker: Sticker } = useLoaderData() as any;
 
   const dialog = useDialog()
   async function openImageFile(){
     
-    const path = (sticky as StickyImg).path
+    const path = (sticker as StickerImg).path
     const contin = await dialog.ask(`Open ${path} with default applications?`)
     if(!contin) return
     shell.open(path, 'xdg-open')
@@ -90,23 +90,23 @@ export default function StickyView() {
           <LuArrowLeft />
         </Button>
         <h4 className="overflow-hidden whitespace-nowrap text-ellipsis">
-          {sticky.name}
+          {sticker.name}
         </h4>
       </div>
       <div className="p-8 space-y-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-        <StickyOverview sticky={sticky} />
+        <StickerOverview sticker={sticker} />
         <div className="border p-8 space-y-2">
           <div className="space-y-0.5">
             <h4 className="font-medium leading-none">Package</h4>
-            <p className="text-muted-foreground">{sticky.package}</p>
+            <p className="text-muted-foreground">{sticker.package}</p>
           </div>
           <Separator />
-          <TagViewer tags={sticky.tags} />
+          <TagViewer tags={sticker.tags} />
         </div>
       </div>
-      {sticky.ty == "PIC" ? (
+      {sticker.ty == "PIC" ? (
         <p className="p-8 text-muted-foreground">
-          Location: <button className="underline hover:underline-offset-2" onClick={openImageFile}>{(sticky as StickyImg).path}</button>
+          Location: <button className="underline hover:underline-offset-2" onClick={openImageFile}>{(sticker as StickerImg).path}</button>
         </p>
       ) : null}
     </div>

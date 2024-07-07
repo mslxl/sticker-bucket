@@ -82,19 +82,19 @@
     in rec {
       # Executed by `nix build`
       packages = rec {
-        stickybucket = pkgs.callPackage ./stickybucket.nix {
+        stickerbucket = pkgs.callPackage ./stickerbucket.nix {
           inherit libraries;
         };
-        default = stickybucket;
+        default = stickerbucket;
       };
 
       # Executed by `nix run`
       apps = rec {
-        stickybucket = {
+        stickerbucket = {
           type = "app";
-          program = "${packages.default}/bin/stickybucket";
+          program = "${packages.default}/bin/stickerbucket";
         };
-        default = stickybucket;
+        default = stickerbucket;
       };
 
       devShell = pkgs.mkShell {

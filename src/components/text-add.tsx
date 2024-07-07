@@ -9,14 +9,14 @@ import { LuCheck, LuX } from "react-icons/lu";
 import { useState } from "react";
 import { Tag } from "./tag-viewer";
 import { useDialog } from "@/lib/hook/useDialog";
-import { createTextSticky } from "@/lib/cmd/library";
+import { createTextSticker } from "@/lib/cmd/library";
 
-interface StickyFolderAddDialogProps {
+interface StickerFolderAddDialogProps {
   resolve: () => void;
   reject: () => void;
 }
 
-export default function StickyFolderAddDialog({resolve}: StickyFolderAddDialogProps) {
+export default function StickerFolderAddDialog({resolve}: StickerFolderAddDialogProps) {
   const dialog = useDialog();
   const [content, setContent] = useState("");
   const [pkg, setPkg] = useState("");
@@ -28,7 +28,7 @@ export default function StickyFolderAddDialog({resolve}: StickyFolderAddDialogPr
       return;
     }
     try {
-      await createTextSticky(content, pkg, tags);
+      await createTextSticker(content, pkg, tags);
     } catch (e: any) {
       dialog.message(e, { title: "Error" });
       return

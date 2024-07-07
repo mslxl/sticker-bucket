@@ -1,5 +1,5 @@
-import { StickyImgThumb, StickyTextThumb, StickyThumb } from "@/lib/cmd/library";
-import { StickyListLayoutProps } from ".";
+import { StickerImgThumb, StickerTextThumb, StickerThumb } from "@/lib/cmd/library";
+import { StickerListLayoutProps } from ".";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import clsx from "clsx";
 import { Card, CardDescription, CardHeader, CardTitle } from "../ui/card";
@@ -12,11 +12,11 @@ import {
 import { useNavigate } from "react-router-dom";
 
 interface GridItemProps {
-  sticky: StickyThumb;
+  sticker: StickerThumb;
 }
 
-function ImgItem({ sticky }: { sticky: StickyImgThumb }) {
-  const url = convertFileSrc(sticky.path);
+function ImgItem({ sticker }: { sticker: StickerImgThumb }) {
+  const url = convertFileSrc(sticker.path);
   return (
     <CardHeader className="h-full flex flex-col justify-end">
       <CardTitle className="flex justify-center flex-1">
@@ -27,51 +27,51 @@ function ImgItem({ sticky }: { sticky: StickyImgThumb }) {
       <Tooltip>
         <TooltipTrigger>
           <CardDescription className="whitespace-nowrap text-ellipsis overflow-hidden">
-            {sticky.name}
+            {sticker.name}
           </CardDescription>
         </TooltipTrigger>
-        <TooltipContent>{sticky.name}</TooltipContent>
+        <TooltipContent>{sticker.name}</TooltipContent>
       </Tooltip>
     </CardHeader>
   );
 }
-function TxtItem({ sticky }: { sticky: StickyTextThumb }) {
+function TxtItem({ sticker }: { sticker: StickerTextThumb }) {
   return (
     <CardHeader className="h-full flex flex-col justify-end">
       <div className="overflow-hidden rounded-lg bg-secondary border p-2 max-h-60">
-      <div className="leading-7 [&:not(:first-child)]:mt-6 text-ellipsis h-full overflow-hidden whitespace-pre-line">{sticky.name}</div>
+      <div className="leading-7 [&:not(:first-child)]:mt-6 text-ellipsis h-full overflow-hidden whitespace-pre-line">{sticker.name}</div>
       </div>
       <Tooltip>
         <TooltipTrigger>
           <CardDescription className="whitespace-nowrap text-ellipsis overflow-hidden">
-            {sticky.name}
+            {sticker.name}
           </CardDescription>
         </TooltipTrigger>
-        <TooltipContent>{sticky.name}</TooltipContent>
+        <TooltipContent>{sticker.name}</TooltipContent>
       </Tooltip>
     </CardHeader>
   );
 }
 
-function GridItem({ sticky }: GridItemProps) {
+function GridItem({ sticker }: GridItemProps) {
   const navgiate = useNavigate()
   return (
     <li>
-      <Card className="h-full hover:bg-secondary" onClick={()=>navgiate(`/viewer/${sticky.id}`)}>
-        {sticky.ty == "PIC" ? (
-          <ImgItem sticky={sticky} />
+      <Card className="h-full hover:bg-secondary" onClick={()=>navgiate(`/viewer/${sticker.id}`)}>
+        {sticker.ty == "PIC" ? (
+          <ImgItem sticker={sticker} />
         ) : (
-          <TxtItem sticky={sticky} />
+          <TxtItem sticker={sticker} />
         )}
       </Card>
     </li>
   );
 }
 
-export default function StickyGrid({
+export default function StickerGrid({
   stickies,
   className,
-}: StickyListLayoutProps) {
+}: StickerListLayoutProps) {
   return (
     <div className={className}>
       <ul
@@ -81,7 +81,7 @@ export default function StickyGrid({
       >
         <TooltipProvider>
           {stickies.map((s) => (
-            <GridItem key={s.id} sticky={s}/>
+            <GridItem key={s.id} sticker={s}/>
           ))}
         </TooltipProvider>
       </ul>

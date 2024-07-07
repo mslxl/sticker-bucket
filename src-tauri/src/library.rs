@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    cmd::library::StickyDBState,
+    cmd::library::StickerDBState,
     search::{self, parse_serach},
 };
 
@@ -46,7 +46,7 @@ pub fn get_or_create_package(transaction: &mut Transaction, name: &str) -> Resul
     }
 }
 
-pub fn insert_pic_sticky_record(
+pub fn insert_pic_sticker_record(
     transaction: &mut Transaction,
     filename: &str,
     name: &str,
@@ -57,21 +57,21 @@ pub fn insert_pic_sticky_record(
 ) -> Result<i64, String> {
     transaction
         .execute(
-            "INSERT INTO sticky (filename, name, package, sensor_id, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'PIC')",
+            "INSERT INTO sticker (filename, name, package, sensor_id, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'PIC')",
             (filename, name, package, sensor_id, width, height),
         )
         .map_err(|e| e.to_string())?;
     Ok(transaction.last_insert_rowid())
 }
 
-pub fn insert_text_sticky_record(
+pub fn insert_text_sticker_record(
     transaction: &mut Transaction,
     content: &str,
     package: i64,
 ) -> Result<i64, String> {
     transaction
         .execute(
-            "INSERT INTO sticky (name, package, type) VALUES (?1, ?2, 'TEXT')",
+            "INSERT INTO sticker (name, package, type) VALUES (?1, ?2, 'TEXT')",
             (content, package),
         )
         .map_err(|e| e.to_string())?;
@@ -119,36 +119,36 @@ pub fn get_or_insert_tag(
     }
 }
 
-pub fn add_tag_to_sticky(
+pub fn add_tag_to_sticker(
     transaction: &mut Transaction,
-    sticky_id: i64,
+    sticker_id: i64,
     tag_id: i64,
 ) -> Result<(), String> {
     transaction
         .execute(
-            "INSERT INTO sticky_tag (sticky, tag) VALUES (?1, ?2)",
-            [sticky_id, tag_id],
+            "INSERT INTO sticker_tag (sticker, tag) VALUES (?1, ?2)",
+            [sticker_id, tag_id],
         )
         .map_err(|e| e.to_string())
         .map(|_| ())
 }
 
-pub fn remove_tag_from_sticky(
+pub fn remove_tag_from_sticker(
     transaction: &mut Transaction,
-    sticky_id: i64,
+    sticker_id: i64,
     tag_id: i64,
 ) -> Result<(), String> {
     transaction
         .execute(
-            "DELETE FROM sticky_tag WHERE sticky = ?1 AND tag = ?2",
-            [sticky_id, tag_id],
+            "DELETE FROM sticker_tag WHERE sticker = ?1 AND tag = ?2",
+            [sticker_id, tag_id],
         )
         .map_err(|e| e.to_string())
         .map(|_| ())
 }
 
 pub fn predict_path<P: AsRef<Path>>(
-    state: &StickyDBState,
+    state: &StickerDBState,
     file: P,
     with_ext: bool,
 ) -> Result<PathBuf, String> {
@@ -170,7 +170,7 @@ pub fn predict_path<P: AsRef<Path>>(
 }
 
 pub fn cpy_to_library(
-    state: &StickyDBState,
+    state: &StickerDBState,
     file: PathBuf,
     with_ext: bool,
 ) -> Result<String, String> {
@@ -217,7 +217,7 @@ impl From<String> for StickTy {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct StickyThumb {
+pub struct StickerThumb {
     id: i64,
     path: Option<PathBuf>,
     name: String,
@@ -227,12 +227,12 @@ pub struct StickyThumb {
 }
 
 static ITEM_PER_PAGE: i32 = 40;
-pub fn search_sticky(
-    state: &StickyDBState,
+pub fn search_sticker(
+    state: &StickerDBState,
     conn: &Connection,
     stmt: &str,
     page: i32,
-) -> Result<Vec<StickyThumb>, String> {
+) -> Result<Vec<StickerThumb>, String> {
     info!("Search with: {}", &stmt);
     let parsed_stmt = parse_serach(stmt)?;
     let sql = search::sql::build_search_sql_stmt(parsed_stmt, page, ITEM_PER_PAGE)?;
@@ -240,7 +240,7 @@ pub fn search_sticky(
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let res = stmt
         .query_and_then::<_, anyhow::Error, _, _>([], |row| {
-            Ok(StickyThumb {
+            Ok(StickerThumb {
                 id: row.get("id")?,
                 path: row
                     .get::<&str, String>("filename")
@@ -269,7 +269,7 @@ pub fn search_sticky(
 }
 
 
-pub fn count_search_sticky_page(
+pub fn count_search_sticker_page(
     conn: &Connection,
     stmt: &str,
 ) -> Result<i32, String> {
@@ -348,7 +348,7 @@ pub fn is_path_blacklist(conn: &Connection, path: &str) -> Result<bool, String> 
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct Sticky {
+pub struct Sticker {
     id: i64,
     path: Option<PathBuf>,
     name: String,
@@ -359,12 +359,12 @@ pub struct Sticky {
     tags: Vec<Tag>,
 }
 
-pub fn get_sticky_by_id(
-    state: &StickyDBState,
+pub fn get_sticker_by_id(
+    state: &StickerDBState,
     conn: &Connection,
     id: i64,
-) -> Result<Sticky, String> {
-    let (filepath, name, pkg_name, width, height,ty ) = conn.query_row("SELECT sticky.filename, sticky.name, package.name, sticky.width, sticky.height, sticky.type FROM sticky LEFT JOIN package ON sticky.package = package.id WHERE sticky.id = ?1", [id], 
+) -> Result<Sticker, String> {
+    let (filepath, name, pkg_name, width, height,ty ) = conn.query_row("SELECT sticker.filename, sticker.name, package.name, sticker.width, sticker.height, sticker.type FROM sticker LEFT JOIN package ON sticker.package = package.id WHERE sticker.id = ?1", [id], 
     |row| Ok(
         (
             row.get::<usize, String>(0).ok().as_ref().map(|path| state.locate_path(path)),
@@ -377,7 +377,7 @@ pub fn get_sticky_by_id(
                 _ => StickTy::PIC
             })?
         ))).map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT namespace, value FROM sticky_tag LEFT JOIN tag ON sticky_tag.tag = tag.id WHERE sticky_tag.sticky = ?1").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT namespace, value FROM sticker_tag LEFT JOIN tag ON sticker_tag.tag = tag.id WHERE sticker_tag.sticker = ?1").map_err(|e| e.to_string())?;
     let res = stmt
         .query_and_then([id], |row| -> anyhow::Result<Tag> {
             Ok(Tag {
@@ -395,7 +395,7 @@ pub fn get_sticky_by_id(
         }
     }
 
-    Ok(Sticky {
+    Ok(Sticker {
         id: id,
         path: filepath,
         name: name,

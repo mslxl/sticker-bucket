@@ -1,7 +1,7 @@
 import { DEFAULT_STICKY_DIR } from "@/const";
 import { Store } from "@tauri-apps/plugin-store";
 import { atomWithStorage } from "jotai/utils";
-const store = new Store("stickybucket.json");
+const store = new Store("stickerbucket.json");
 
 class TauriStorage<T> {
   store: Store;
@@ -38,8 +38,8 @@ function storageTyped<T>(): TauriStorage<T> {
 }
 
 const database = {
-  stickyDir: atomWithStorage(
-    "db.sticky-dir",
+  stickerDir: atomWithStorage(
+    "db.sticker-dir",
     DEFAULT_STICKY_DIR,
     storageTyped<string>()
   ),
