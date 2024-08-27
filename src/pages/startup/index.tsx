@@ -14,9 +14,9 @@ export default function StartupPage() {
 
   return (
     <div className="h-screen w-screen flex items-stretch">
-      <div className="p-4 bg-secondary">
-        <div>
-          <div className="my-4 flex items-center space-x-4">
+      <div className="h-full">
+        <div className="h-full flex flex-col">
+          <div className="my-4 p-4 flex items-center space-x-4">
             <img src={Logo} />
             <div>
               <h3 className="font-semibold leading-none tracking-tight">
@@ -27,7 +27,7 @@ export default function StartupPage() {
               </p>
             </div>
           </div>
-          <Nav>
+          <Nav border className="px-4 flex-1">
             <NavCatalog>
               <NavCatalogContentList>
                 <NavCatalogContentListItem
@@ -55,7 +55,7 @@ export default function StartupPage() {
           </Nav>
         </div>
       </div>
-      <div className="flex-1">
+      <div className="flex-1 pt-[32px]">
         <Suspense>
           <Outlet />
         </Suspense>
