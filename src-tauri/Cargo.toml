@@ -1,8 +1,8 @@
 [package]
-name = "sticker-library"
+name = "sticker-bucket"
 version = "0.1.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["mslxl"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,3 +33,7 @@ zstd = "0.13.2"
 tauri-plugin-dialog = "2.0.0-rc"
 tauri-plugin-clipboard-manager = "2.1.0-beta.7"
 tauri-plugin-decorum = "1.0.0"
+
+# make sure hyper-tls(the dependences of reqwest with tls features) is installed
+# which will prevent compile if not installed
+reqwest = { version = "0.12.7", features = ["default-tls"] }
