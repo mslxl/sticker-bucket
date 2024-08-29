@@ -12,7 +12,8 @@ pub fn run() {
     let prefs_builder = Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             prefs::set_global_prefs::<tauri::Wry>,
-            prefs::get_global_prefs
+            prefs::get_global_prefs,
+            prefs::is_debug_mode
         ])
         .events(collect_events![prefs::GlobalPrefsChangedEvent]);
     #[cfg(debug_assertions)] // <- Only export on non-release builds
@@ -26,6 +27,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_decorum::init())
         .setup(move |app| {
             let main_window = app.get_webview_window("main").unwrap();
@@ -51,7 +53,8 @@ pub fn run() {
         .invoke_handler(generate_handler![
             // prefs builder
             prefs::set_global_prefs,
-            prefs::get_global_prefs
+            prefs::get_global_prefs,
+            prefs::is_debug_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -6,6 +6,14 @@ import "@/global.sass";
 import "virtual:uno.css";
 import Router from "@/router";
 import BasicLayout from "./pages/layout";
+import { isDebugMode } from "./prefs";
+
+isDebugMode().then((debugMode) => {
+  if (!debugMode) {
+    const preventEvent = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", preventEvent);
+  }
+});
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

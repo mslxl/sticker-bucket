@@ -16,7 +16,7 @@ pub struct AppGlobalCfg {
     #[serde(default = "AppGlobalCfg::default_lng")]
     pub lng: String,
     #[serde(default = "AppGlobalCfg::default_history")]
-    pub history: Vec<(String, String)>,
+    pub history: Vec<String>,
     #[serde(default = "AppGlobalCfg::default_last_open")]
     pub last_open: Option<String>,
     #[serde(default = "AppGlobalCfg::default_always_open_last")]
@@ -31,7 +31,7 @@ impl AppGlobalCfg {
     fn default_lng() -> String{
         String::from("en")
     }
-    fn default_history() -> Vec<(String, String)> {
+    fn default_history() -> Vec<(String)> {
         Vec::new()
     }
     fn default_last_open() -> Option<String> {
@@ -128,4 +128,14 @@ pub async fn set_global_prefs<R: Runtime>(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+
+#[tauri::command]
+#[specta::specta]
+pub async fn is_debug_mode() -> Result<bool, String> {
+    #[cfg(debug_assertions)]
+    return Ok(true);
+
+    Ok(false)
 }

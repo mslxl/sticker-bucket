@@ -21,6 +21,14 @@ async getGlobalPrefs() : Promise<Result<AppGlobalCfg, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async isDebugMode() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("is_debug_mode") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -39,7 +47,7 @@ globalPrefsChangedEvent: "global-prefs-changed-event"
 
 /** user-defined types **/
 
-export type AppGlobalCfg = { lng?: string; history?: ([string, string])[]; last_open?: string | null; always_open_last?: boolean; dark_mode?: boolean; accent_color?: string }
+export type AppGlobalCfg = { lng?: string; history?: string[]; last_open?: string | null; always_open_last?: boolean; dark_mode?: boolean; accent_color?: string }
 export type GlobalPrefsChangedEvent = { tag: string }
 
 /** tauri-specta globals **/
