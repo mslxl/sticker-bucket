@@ -1,7 +1,8 @@
 {
-  "productName": "Sticker Bucket",
-  "version": "0.0.0",
-  "identifier": "com.mslxl.stickerbucket",
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "memelith",
+  "version": "0.1.0",
+  "identifier": "com.memelith.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -11,24 +12,20 @@
   "app": {
     "windows": [
       {
-        "title": "Sticker Bucket",
+        "title": "memelith",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "visible": false
       }
     ],
     "security": {
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**", "**/*"]
+        "scope": ["**/*"]
       }
-    }
-  },
-  "plugins": {
-    "fs":{
-      "enable": true,
-      "scope": ["**/*", "**", "/**/*"]
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,

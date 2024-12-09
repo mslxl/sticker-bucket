@@ -1,16 +1,14 @@
-help:
-    just --list
+dev: 
+  pnpm tauri dev
 
-build-nix:
-  #!/usr/bin/env -S nix shell nixpkgs#bash nixpkgs#nix-output-monitor --command bash
-  nix build --log-format internal-json -v |& nom --json
-
-dev:
-    pnpm tauri dev
-
-build-deb: 
-    pnpm tauri build -b deb
+build:
+  pnpm tauri build
 
 clean:
-    rm -rf ./dist
-    rm -rf ./src-tauri/target
+  rm -rf dist
+  cd src-tauri && cargo clean
+
+install: build
+  $(find src-tauri/target/release/bundle/nsis/memelith*-setup.exe | head)
+
+

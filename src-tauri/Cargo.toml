@@ -1,36 +1,53 @@
 [package]
-name = "stickerbucket"
-version = "0.0.0"
-description = "A simple manager of stickies"
-authors = ["mslxl <i@mslxl.com>"]
+name = "memelith"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "memelith_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
-tauri-build = { version = "2.0.0-beta", features = [] }
+tauri-build = { version = "2", features = [] }
+lalrpop = "0.22.2"
 
 [dependencies]
-tauri = { version = "2.0.0-beta", features = ["protocol-asset"] }
-tauri-plugin-shell = "2.0.0-beta"
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.31.0", features = ["bundled"] }
-# make sure hyper-tls(the dependences of reqwest with tls features) is installed
-# which will prevent compile if not installed
-reqwest = { version = "0.12.4", features = ["default-tls"] }
-tauri-plugin-store = "2.0.0-beta.6"
-tauri-plugin-dialog = "2.0.0-beta.7"
-tauri-plugin-fs = "2.0.0-beta.7"
-anyhow = "1.0.83"
-thiserror = "1.0.60"
-tokio = { version = "1.37.0", features = ["sync", "fs", "io-std", "io-util", "macros", "net"] }
-tauri-plugin-process = "2.0.0-beta.4"
-sha2 = "0.10.8"
-tauri-plugin-log = "2.0.0-beta.4"
-log = { version = "0.4.21", features = ["std", "serde"] }
-nom = { version = "7.1.3", features = ["alloc"] }
-itertools = "0.13.0"
-# ort = "1.16.3"
-opencv = "0.92.0"
+tauri-plugin-decorum = "1.1.1"
+ndarray = { version = "0.16.1", features = ["blas"] }
+rusqlite = { version = "0.36.0", features = ["bundled", "chrono"] }
+sqlite-vec = "0.1.6"
+zerocopy = "0.8.25"
+anyhow = "1.0.98"
+tokio = { version = "1.45.1", features = ["fs", "bytes", "io-std", "io-util", "tokio-macros", "sync"] }
+log = "0.4.27"
+specta = { version = "=2.0.0-rc.22", features = ["time", "tokio", "serde", "uuid", "chrono", "bigdecimal"] }
+specta-typescript = "0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+ort = "=2.0.0-rc.10"
+tauri-plugin-fs = "2"
+chrono = { version = "0.4.41", features = ["serde"] }
+uuid = { version = "1.17.0", features = ["serde", "v4", "v6", "v7"] }
+once_cell = "1.21.3"
+sha2 = "0.10.9"
+trash = "5.2.2"
+imageproc = "0.25.0"
+image = "0.25.6"
+hex = "0.4.3"
+r2d2 = "0.8.10"
+r2d2_sqlite = "0.30.0"
+whoami = "1.6.0"
+lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
 
