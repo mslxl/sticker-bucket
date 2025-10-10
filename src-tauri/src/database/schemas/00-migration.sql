@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS migration(
+    version INT PRIMARY KEY
+);
