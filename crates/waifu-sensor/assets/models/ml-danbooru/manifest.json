@@ -1,0 +1,7 @@
+{
+  "id": "ml_caformer_m36_dec-5-97527",
+  "filename": "ml_caformer_m36_dec-5-97527.onnx",
+  "url": "https://huggingface.co/deepghs/ml-danbooru-onnx/resolve/eb9058324a741f1b90d4db168f6e1d6b6cb7e63d/ml_caformer_m36_dec-5-97527.onnx",
+  "sha256": "4ea7aa66df59632c71e036cd9eda9c89e0eaf58bcd39bf9718e63583378cba75",
+  "classes": "classes.json"
+}

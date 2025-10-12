@@ -1,0 +1,1255 @@
+{
+  "id": "rimo-waifu-sensor-v3",
+  "model_id": "ml_caformer_m36_dec-5-97527",
+  "threshold": 0.4,
+  "features": [
+    {
+      "tag": "animal_ears",
+      "weight": 1.0
+    },
+    {
+      "tag": "animal_ear_fluff",
+      "weight": 1.0
+    },
+    {
+      "tag": "pointy_ears",
+      "weight": 1.0
+    },
+    {
+      "tag": "cat_ears",
+      "weight": 0.6196702088134012
+    },
+    {
+      "tag": "fox_ears",
+      "weight": 0.8136686501354825
+    },
+    {
+      "tag": "dog_ears",
+      "weight": 0.7139569621037521
+    },
+    {
+      "tag": "horse_ears",
+      "weight": 1.0
+    },
+    {
+      "tag": "multiple_tails",
+      "weight": 0.9105899697368581
+    },
+    {
+      "tag": "rabbit_tail",
+      "weight": 0.30646884142682057
+    },
+    {
+      "tag": "cat_tail",
+      "weight": 0.6106608786111534
+    },
+    {
+      "tag": "fox_tail",
+      "weight": 0.6860634605733226
+    },
+    {
+      "tag": "dog_tail",
+      "weight": 1.0
+    },
+    {
+      "tag": "demon_tail",
+      "weight": 0.8103552847941861
+    },
+    {
+      "tag": "blue_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_between_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "purple_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "green_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "brown_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "red_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "closed_eyes",
+      "weight": 0.31737839664916456
+    },
+    {
+      "tag": "pink_eyes",
+      "weight": 0.8841340491818594
+    },
+    {
+      "tag": "yellow_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "aqua_eyes",
+      "weight": 0.7753598177644933
+    },
+    {
+      "tag": "grey_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "black_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "orange_eyes",
+      "weight": 1.0
+    },
+    {
+      "tag": "white_eyes",
+      "weight": 0.7413820250147418
+    },
+    {
+      "tag": "glowing_eyes",
+      "weight": 0.7092589208106523
+    },
+    {
+      "tag": "hair_over_eyes",
+      "weight": 0.9230816768707234
+    },
+    {
+      "tag": "hair_over_shoulder",
+      "weight": 0.6585577944961893
+    },
+    {
+      "tag": "long_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "short_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "brown_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "eyebrows_visible_through_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "black_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "blonde_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "very_long_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "blue_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "purple_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "silver_hair",
+      "weight": 0.9058255528251736
+    },
+    {
+      "tag": "white_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "pink_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "grey_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "pubic_hair",
+      "weight": 0.4635535679953233
+    },
+    {
+      "tag": "medium_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "multicolored_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "red_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "two-tone_hair",
+      "weight": 0.34483096324604084
+    },
+    {
+      "tag": "shiny_hair",
+      "weight": 0.2916921703569786
+    },
+    {
+      "tag": "streaked_hair",
+      "weight": 0.0
+    },
+    {
+      "tag": "orange_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "gradient_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "aqua_hair",
+      "weight": 0.7128496350822201
+    },
+    {
+      "tag": "green_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "light_purple_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "light_brown_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "tied_hair",
+      "weight": 0.702407301523928
+    },
+    {
+      "tag": "straight_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "asymmetrical_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "spiked_hair",
+      "weight": 0.7943012113417053
+    },
+    {
+      "tag": "light_blue_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "platinum_blonde_hair",
+      "weight": 0.5816925503668819
+    },
+    {
+      "tag": "eyebrows_behind_hair",
+      "weight": 0.7999461898881363
+    },
+    {
+      "tag": "colored_inner_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "drill_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "wavy_hair",
+      "weight": 1.0
+    },
+    {
+      "tag": "low-tied_long_hair",
+      "weight": 0.9658539834448508
+    },
+    {
+      "tag": "antenna_hair",
+      "weight": 0.9104754954678922
+    },
+    {
+      "tag": "medium_breasts",
+      "weight": 1.0
+    },
+    {
+      "tag": "large_breasts",
+      "weight": 1.0
+    },
+    {
+      "tag": "small_breasts",
+      "weight": 0.31610163349413306
+    },
+    {
+      "tag": "huge_breasts",
+      "weight": 0.4043143693601816
+    },
+    {
+      "tag": "gigantic_breasts",
+      "weight": 0.8001292237326092
+    },
+    {
+      "tag": "flat_chest",
+      "weight": 0.8239613825746457
+    },
+    {
+      "tag": "ponytail",
+      "weight": 1.0
+    },
+    {
+      "tag": "high_ponytail",
+      "weight": 1.0
+    },
+    {
+      "tag": "ribbon",
+      "weight": 1.0
+    },
+    {
+      "tag": "two_side_up",
+      "weight": 1.0
+    },
+    {
+      "tag": "twintails",
+      "weight": 1.0
+    },
+    {
+      "tag": "short_twintails",
+      "weight": 0.0
+    },
+    {
+      "tag": "low_twintails",
+      "weight": 1.0
+    },
+    {
+      "tag": "one_side_up",
+      "weight": 1.0
+    },
+    {
+      "tag": "double_bun",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_bun",
+      "weight": 0.9397807751193408
+    },
+    {
+      "tag": "bangs",
+      "weight": 0.9269724046458486
+    },
+    {
+      "tag": "blunt_bangs",
+      "weight": 1.0
+    },
+    {
+      "tag": "parted_bangs",
+      "weight": 1.0
+    },
+    {
+      "tag": "swept_bangs",
+      "weight": 0.9111096299864008
+    },
+    {
+      "tag": "asymmetrical_bangs",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_ornament",
+      "weight": 1.0
+    },
+    {
+      "tag": "sidelocks",
+      "weight": 1.0
+    },
+    {
+      "tag": "short_hair_with_long_locks",
+      "weight": 0.9597040727388867
+    },
+    {
+      "tag": "virtual_youtuber",
+      "weight": 1.0
+    },
+    {
+      "tag": "braid",
+      "weight": 1.0
+    },
+    {
+      "tag": "tail",
+      "weight": 0.0
+    },
+    {
+      "tag": "hairband",
+      "weight": 1.0
+    },
+    {
+      "tag": "hairclip",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_bow",
+      "weight": 0.7671671792688803
+    },
+    {
+      "tag": "hair_ribbon",
+      "weight": 0.1502205392941192
+    },
+    {
+      "tag": "side_ponytail",
+      "weight": 1.0
+    },
+    {
+      "tag": "glasses",
+      "weight": 1.0
+    },
+    {
+      "tag": "heterochromia",
+      "weight": 1.0
+    },
+    {
+      "tag": "elf",
+      "weight": 0.7547359919177995
+    },
+    {
+      "tag": "ahoge",
+      "weight": 1.0
+    },
+    {
+      "tag": "halo",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_over_one_eye",
+      "weight": 1.0
+    },
+    {
+      "tag": "horns",
+      "weight": 1.0
+    },
+    {
+      "tag": "hime_cut",
+      "weight": 1.0
+    },
+    {
+      "tag": "hair_intakes",
+      "weight": 1.0
+    },
+    {
+      "tag": "headgear",
+      "weight": 1.0
+    },
+    {
+      "tag": "short_eyebrows",
+      "weight": 1.0
+    },
+    {
+      "tag": "thick_eyebrows",
+      "weight": 1.0
+    },
+    {
+      "tag": "mole",
+      "weight": 1.0
+    },
+    {
+      "tag": "mole_under_eye",
+      "weight": 1.0
+    },
+    {
+      "tag": "bow",
+      "weight": 0.0
+    },
+    {
+      "tag": "dark_skin",
+      "weight": 1.0
+    },
+    {
+      "tag": "colored_skin",
+      "weight": 1.0
+    },
+    {
+      "tag": "wings",
+      "weight": 1.0
+    },
+    {
+      "tag": "jewelry",
+      "weight": 0.1744619263394497
+    },
+    {
+      "tag": "necktie",
+      "weight": 1.0
+    },
+    {
+      "tag": "coat",
+      "weight": 0.38957132701157343
+    },
+    {
+      "tag": "elbow_gloves",
+      "weight": 0.1827066917252549
+    },
+    {
+      "tag": "hat",
+      "weight": 1.0
+    },
+    {
+      "tag": "weapon",
+      "weight": 1.0
+    },
+    {
+      "tag": "white_shirt",
+      "weight": 0.0
+    },
+    {
+      "tag": "armor",
+      "weight": 0.9879096387209226
+    },
+    {
+      "tag": "black_neckwear",
+      "weight": 0.031205079541986563
+    },
+    {
+      "tag": "yellow_bow",
+      "weight": 0.06947243616658358
+    },
+    {
+      "tag": "emblem",
+      "weight": 0.491044241546869
+    },
+    {
+      "tag": "hood",
+      "weight": 1.0
+    },
+    {
+      "tag": "looking_at_viewer",
+      "weight": 0.0
+    },
+    {
+      "tag": "blush",
+      "weight": 0.6029935219851833
+    },
+    {
+      "tag": "breasts",
+      "weight": 0.0
+    },
+    {
+      "tag": "simple_background",
+      "weight": 0.051717915878040505
+    },
+    {
+      "tag": "smile",
+      "weight": 0.9219745306809581
+    },
+    {
+      "tag": "white_background",
+      "weight": 0.0
+    },
+    {
+      "tag": "open_mouth",
+      "weight": 0.0
+    },
+    {
+      "tag": "shirt",
+      "weight": 0.0
+    },
+    {
+      "tag": "shiny",
+      "weight": 0.550414154996014
+    },
+    {
+      "tag": "standing",
+      "weight": 0.0
+    },
+    {
+      "tag": "long_sleeves",
+      "weight": 0.0
+    },
+    {
+      "tag": "artist_name",
+      "weight": 0.10152895673205846
+    },
+    {
+      "tag": "thighs",
+      "weight": 0.0
+    },
+    {
+      "tag": "closed_mouth",
+      "weight": 0.0
+    },
+    {
+      "tag": "skirt",
+      "weight": 0.3242058125156621
+    },
+    {
+      "tag": "alternate_costume",
+      "weight": 0.6247064473087517
+    },
+    {
+      "tag": "collarbone",
+      "weight": 0.0
+    },
+    {
+      "tag": "cowboy_shot",
+      "weight": 0.2740212861441173
+    },
+    {
+      "tag": "bare_shoulders",
+      "weight": 0.0
+    },
+    {
+      "tag": "dress",
+      "weight": 0.0
+    },
+    {
+      "tag": "looking_to_the_side",
+      "weight": 0.4706842503032639
+    },
+    {
+      "tag": "eyelashes",
+      "weight": 0.6878584550426591
+    },
+    {
+      "tag": "hand_up",
+      "weight": 0.0
+    },
+    {
+      "tag": "head_tilt",
+      "weight": 0.16764321660854187
+    },
+    {
+      "tag": "holding",
+      "weight": 0.0
+    },
+    {
+      "tag": "twitter_username",
+      "weight": 0.04964850159481517
+    },
+    {
+      "tag": "cleavage",
+      "weight": 0.0
+    },
+    {
+      "tag": "eyebrows",
+      "weight": 1.0
+    },
+    {
+      "tag": "parted_lips",
+      "weight": 0.2736539079322769
+    },
+    {
+      "tag": "dated",
+      "weight": 0.7011270008430941
+    },
+    {
+      "tag": "watermark",
+      "weight": 0.07256775648444608
+    },
+    {
+      "tag": "upper_body",
+      "weight": 0.0
+    },
+    {
+      "tag": "signature",
+      "weight": 1.0
+    },
+    {
+      "tag": "underwear",
+      "weight": 0.0
+    },
+    {
+      "tag": "shiny_skin",
+      "weight": 0.22498130470245575
+    },
+    {
+      "tag": "fingernails",
+      "weight": 0.3398922042454251
+    },
+    {
+      "tag": "gloves",
+      "weight": 0.0
+    },
+    {
+      "tag": ":d",
+      "weight": 0.3159457724462025
+    },
+    {
+      "tag": "navel",
+      "weight": 0.0
+    },
+    {
+      "tag": "sleeveless",
+      "weight": 1.0
+    },
+    {
+      "tag": "frills",
+      "weight": 0.25107012549881863
+    },
+    {
+      "tag": "eyes_visible_through_hair",
+      "weight": 0.8923066814265749
+    },
+    {
+      "tag": "dutch_angle",
+      "weight": 0.0
+    },
+    {
+      "tag": "thighhighs",
+      "weight": 0.0
+    },
+    {
+      "tag": "web_address",
+      "weight": 0.30632979220142365
+    },
+    {
+      "tag": "grey_background",
+      "weight": 0.0
+    },
+    {
+      "tag": "full_body",
+      "weight": 0.0
+    },
+    {
+      "tag": "teeth",
+      "weight": 0.7477732121232057
+    },
+    {
+      "tag": "heart",
+      "weight": 0.18735313089151326
+    },
+    {
+      "tag": "jacket",
+      "weight": 0.0
+    },
+    {
+      "tag": "sketch",
+      "weight": 0.0
+    },
+    {
+      "tag": "from_side",
+      "weight": 0.0
+    },
+    {
+      "tag": "arm_up",
+      "weight": 0.0946112657852323
+    },
+    {
+      "tag": "miniskirt",
+      "weight": 0.0
+    },
+    {
+      "tag": "sitting",
+      "weight": 0.09247864286481501
+    },
+    {
+      "tag": "black_legwear",
+      "weight": 0.5762492757978814
+    },
+    {
+      "tag": "lips",
+      "weight": 0.011859447458120148
+    },
+    {
+      "tag": "short_sleeves",
+      "weight": 0.2940252896294318
+    },
+    {
+      "tag": "groin",
+      "weight": 0.0
+    },
+    {
+      "tag": "collar",
+      "weight": 0.5701255050393726
+    },
+    {
+      "tag": "collared_shirt",
+      "weight": 0.2621359770425037
+    },
+    {
+      "tag": "blurry",
+      "weight": 0.26648942799274733
+    },
+    {
+      "tag": "open_clothes",
+      "weight": 0.0
+    },
+    {
+      "tag": "panties",
+      "weight": 0.3426102961424208
+    },
+    {
+      "tag": "pleated_skirt",
+      "weight": 0.0
+    },
+    {
+      "tag": "alternate_hairstyle",
+      "weight": 0.3218340523032685
+    },
+    {
+      "tag": "legs",
+      "weight": 0.026907647728170798
+    },
+    {
+      "tag": "bare_arms",
+      "weight": 0.4819719772832961
+    },
+    {
+      "tag": "midriff",
+      "weight": 0.0
+    },
+    {
+      "tag": "leaning_forward",
+      "weight": 0.6155501255866447
+    },
+    {
+      "tag": "puffy_sleeves",
+      "weight": 0.4854250327643437
+    },
+    {
+      "tag": "light_smile",
+      "weight": 0.21967773990091544
+    },
+    {
+      "tag": "hands_up",
+      "weight": 0.3988230843357877
+    },
+    {
+      "tag": "stomach",
+      "weight": 0.0
+    },
+    {
+      "tag": "looking_away",
+      "weight": 0.9347563847792025
+    },
+    {
+      "tag": "v-shaped_eyebrows",
+      "weight": 0.24152554722290728
+    },
+    {
+      "tag": "shadow",
+      "weight": 0.9401076349665487
+    },
+    {
+      "tag": "skindentation",
+      "weight": 0.5559111373751726
+    },
+    {
+      "tag": "character_name",
+      "weight": 0.12478627073647236
+    },
+    {
+      "tag": "multicolored",
+      "weight": 0.2415150306090192
+    },
+    {
+      "tag": ":o",
+      "weight": 0.0
+    },
+    {
+      "tag": "cosplay",
+      "weight": 0.4299239700433099
+    },
+    {
+      "tag": "gradient",
+      "weight": 0.6205684792348696
+    },
+    {
+      "tag": "depth_of_field",
+      "weight": 0.06486790960334057
+    },
+    {
+      "tag": "detached_sleeves",
+      "weight": 0.7822859179069445
+    },
+    {
+      "tag": "floating_hair",
+      "weight": 0.7616197858464084
+    },
+    {
+      "tag": "ass",
+      "weight": 0.0
+    },
+    {
+      "tag": "school_uniform",
+      "weight": 0.0
+    },
+    {
+      "tag": "half-closed_eyes",
+      "weight": 0.14297900110501896
+    },
+    {
+      "tag": "wide_sleeves",
+      "weight": 1.0
+    },
+    {
+      "tag": "shoes",
+      "weight": 0.0
+    },
+    {
+      "tag": "bare_legs",
+      "weight": 0.8778100137827116
+    },
+    {
+      "tag": "tareme",
+      "weight": 1.0
+    },
+    {
+      "tag": "fang",
+      "weight": 1.0
+    },
+    {
+      "tag": "choker",
+      "weight": 0.8397289887446975
+    },
+    {
+      "tag": "feet_out_of_frame",
+      "weight": 0.5692549652538004
+    },
+    {
+      "tag": "looking_down",
+      "weight": 0.17470530673141568
+    },
+    {
+      "tag": "flower",
+      "weight": 0.6966194044493337
+    },
+    {
+      "tag": "buttons",
+      "weight": 0.20052150536124722
+    },
+    {
+      "tag": "black_skirt",
+      "weight": 0.0
+    },
+    {
+      "tag": "belt",
+      "weight": 1.0
+    },
+    {
+      "tag": "gradient_background",
+      "weight": 0.7099815226016615
+    },
+    {
+      "tag": "sweat",
+      "weight": 0.32688453506052084
+    },
+    {
+      "tag": "sleeves_past_wrists",
+      "weight": 0.0
+    },
+    {
+      "tag": "outdoors",
+      "weight": 0.13420223649450316
+    },
+    {
+      "tag": "boots",
+      "weight": 0.0
+    },
+    {
+      "tag": "swimsuit",
+      "weight": 0.0
+    },
+    {
+      "tag": "covered_nipples",
+      "weight": 0.519638581821267
+    },
+    {
+      "tag": "wing_collar",
+      "weight": 0.3858239162052936
+    },
+    {
+      "tag": "striped",
+      "weight": 1.0
+    },
+    {
+      "tag": "red_ribbon",
+      "weight": 1.0
+    },
+    {
+      "tag": "nail_polish",
+      "weight": 0.061388885562528826
+    },
+    {
+      "tag": "one-hour_drawing_challenge",
+      "weight": 0.5100978187501516
+    },
+    {
+      "tag": "blouse",
+      "weight": 0.19695743101273117
+    },
+    {
+      "tag": "expressionless",
+      "weight": 0.4478749032973049
+    },
+    {
+      "tag": "light_blush",
+      "weight": 0.06777944957116754
+    },
+    {
+      "tag": "day",
+      "weight": 0.28229172786387546
+    },
+    {
+      "tag": "frown",
+      "weight": 0.6683301507042286
+    },
+    {
+      "tag": "armpits",
+      "weight": 0.07470283977621422
+    },
+    {
+      "tag": "see-through",
+      "weight": 0.2755022196112187
+    },
+    {
+      "tag": "from_above",
+      "weight": 0.0
+    },
+    {
+      "tag": "earrings",
+      "weight": 1.0
+    },
+    {
+      "tag": "tsurime",
+      "weight": 0.0
+    },
+    {
+      "tag": "no_bra",
+      "weight": 0.5317774071377955
+    },
+    {
+      "tag": "off_shoulder",
+      "weight": 0.6882267864825502
+    },
+    {
+      "tag": "embarrassed",
+      "weight": 0.2200050559640987
+    },
+    {
+      "tag": "bowtie",
+      "weight": 0.3994758715588478
+    },
+    {
+      "tag": "dress_shirt",
+      "weight": 0.15769302419402892
+    },
+    {
+      "tag": "tongue",
+      "weight": 0.396446757681362
+    },
+    {
+      "tag": "halterneck",
+      "weight": 0.0
+    },
+    {
+      "tag": "star_(symbol)",
+      "weight": 0.12325178697833587
+    },
+    {
+      "tag": "blurry_background",
+      "weight": 0.0619598302184682
+    },
+    {
+      "tag": "white_legwear",
+      "weight": 0.1889014112901315
+    },
+    {
+      "tag": "nose_blush",
+      "weight": 0.0
+    },
+    {
+      "tag": "sideboob",
+      "weight": 0.0
+    },
+    {
+      "tag": "leg_up",
+      "weight": 0.733872050744509
+    },
+    {
+      "tag": "symbol-shaped_pupils",
+      "weight": 0.6656674374417245
+    },
+    {
+      "tag": "arm_support",
+      "weight": 0.6210987384018096
+    },
+    {
+      "tag": "black_gloves",
+      "weight": 0.20588763211404382
+    },
+    {
+      "tag": "light_particles",
+      "weight": 0.013271390968714422
+    },
+    {
+      "tag": "uniform",
+      "weight": 1.0
+    },
+    {
+      "tag": "sky",
+      "weight": 0.0
+    },
+    {
+      "tag": "sleeveless_dress",
+      "weight": 0.24518247901522117
+    },
+    {
+      "tag": "open_jacket",
+      "weight": 0.3016117020130831
+    },
+    {
+      "tag": "indoors",
+      "weight": 0.37113295857118445
+    },
+    {
+      "tag": "white_dress",
+      "weight": 0.6651285447537479
+    },
+    {
+      "tag": "black_ribbon",
+      "weight": 0.1356897736509934
+    },
+    {
+      "tag": "neck_ribbon",
+      "weight": 0.3278209101678399
+    },
+    {
+      "tag": "english_text",
+      "weight": 0.3215727482713173
+    },
+    {
+      "tag": "short_dress",
+      "weight": 0.6001876964313091
+    },
+    {
+      "tag": "black_footwear",
+      "weight": 0.1753805771974099
+    },
+    {
+      "tag": "foreshortening",
+      "weight": 0.14293516253694727
+    },
+    {
+      "tag": "sweatdrop",
+      "weight": 0.1381482919159749
+    },
+    {
+      "tag": "looking_up",
+      "weight": 0.20404075393523044
+    },
+    {
+      "tag": "sleeveless_shirt",
+      "weight": 0.09235068296588303
+    },
+    {
+      "tag": "looking_back",
+      "weight": 0.0
+    },
+    {
+      "tag": "pantyhose",
+      "weight": 0.0
+    },
+    {
+      "tag": "from_below",
+      "weight": 0.9788722225287347
+    },
+    {
+      "tag": "vest",
+      "weight": 0.0
+    },
+    {
+      "tag": "contrapposto",
+      "weight": 0.49460332137406776
+    },
+    {
+      "tag": "two-tone_background",
+      "weight": 0.5718950601717618
+    },
+    {
+      "tag": "clothing_cutout",
+      "weight": 0.5573135022370715
+    },
+    {
+      "tag": "sparkle",
+      "weight": 0.8429915341169456
+    },
+    {
+      "tag": "red_bow",
+      "weight": 0.21857127224881873
+    },
+    {
+      "tag": "sunlight",
+      "weight": 0.10182879743720456
+    },
+    {
+      "tag": "black_dress",
+      "weight": 0.00924752053633909
+    },
+    {
+      "tag": "areolae",
+      "weight": 0.3933412379217748
+    },
+    {
+      "tag": "outstretched_arm",
+      "weight": 0.15903185805932032
+    },
+    {
+      "tag": "bikini",
+      "weight": 0.0
+    },
+    {
+      "tag": "slit_pupils",
+      "weight": 0.9695725179413723
+    },
+    {
+      "tag": "clothes_lift",
+      "weight": 1.0
+    },
+    {
+      "tag": "happy",
+      "weight": 0.5256315602688051
+    },
+    {
+      "tag": "arm_at_side",
+      "weight": 0.38946698648646233
+    },
+    {
+      "tag": "bra",
+      "weight": 0.2817986167568704
+    },
+    {
+      "tag": "patreon_username",
+      "weight": 0.31981526693020507
+    },
+    {
+      "tag": "upper_teeth",
+      "weight": 0.2929498601844566
+    },
+    {
+      "tag": "makeup",
+      "weight": 1.0
+    },
+    {
+      "tag": "ass_visible_through_thighs",
+      "weight": 0.17154156327645056
+    },
+    {
+      "tag": "arms_up",
+      "weight": 0.004967242941380549
+    },
+    {
+      "tag": "wind",
+      "weight": 0.6914274012095183
+    },
+    {
+      "tag": "legs_together",
+      "weight": 0.0
+    },
+    {
+      "tag": "red_neckwear",
+      "weight": 0.3357773148257881
+    }
+  ]
+}

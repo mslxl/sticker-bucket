@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.manifest.outputs.version }}
+      prerelease: ${{ steps.manifest.outputs.prerelease }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Match tag to manifest version
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(
+            cargo metadata --no-deps --format-version 1 |
+              python3 -c '
+          import json
+          import sys
+
+          packages = [package for package in json.load(sys.stdin)["packages"] if package["name"] == "memelith"]
+          if len(packages) != 1:
+              raise SystemExit(f"expected exactly one memelith package, found {len(packages)}")
+          print(packages[0]["version"])
+          '
+          )"
+          tag="${GITHUB_REF_NAME}"
+
+          if [[ "${tag}" != "v${version}" ]]; then
+            printf 'Tag %s does not match the memelith manifest version %s\n' "${tag}" "${version}" >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          if [[ "${version}" == *-* ]]; then
+            echo 'prerelease=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'prerelease=false' >> "${GITHUB_OUTPUT}"
+          fi
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-14
+          - platform: linux
+            runner: ubuntu-22.04
+          - platform: windows
+            runner: windows-2022
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            clang \
+            libclang-dev \
+            libdbus-1-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            liblzma-dev \
+            libssl-dev \
+            libvulkan-dev \
+            libwayland-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            pkg-config \
+            squashfs-tools
+
+      - name: Install macOS packaging dependencies
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install dylibbundler
+
+      - name: Install cargo-bundle
+        shell: bash
+        run: cargo install cargo-bundle --version 0.9.0 --locked
+
+      - name: Build macOS application bundle
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/package-macos.sh
+
+          arch="$(uname -m)"
+          case "${arch}" in
+            arm64) arch='aarch64' ;;
+            x86_64) arch='x86_64' ;;
+            *) printf 'Unsupported macOS architecture: %s\n' "${arch}" >&2; exit 1 ;;
+          esac
+
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            target/macos-bundle/release/bundle/osx/Memelith.app \
+            "dist/memelith-${RELEASE_VERSION}-macos-${arch}.zip"
+
+      - name: Build Linux packages
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo bundle --package memelith --release --format deb
+          cargo bundle --package memelith --release --format appimage
+
+          deb="$(find target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          appimage="$(find target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          [[ -n "${deb}" ]] || { echo 'cargo-bundle did not produce a .deb' >&2; exit 1; }
+          [[ -n "${appimage}" ]] || { echo 'cargo-bundle did not produce an AppImage' >&2; exit 1; }
+
+          mkdir -p dist
+          cp "${deb}" "dist/memelith-${RELEASE_VERSION}-linux-x86_64.deb"
+          cp "${appimage}" "dist/memelith-${RELEASE_VERSION}-linux-x86_64.AppImage"
+
+      - name: Build Windows installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo bundle --package memelith --release --format msi
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $msi = Get-ChildItem -Path target/release/bundle/msi -Filter '*.msi' -File | Select-Object -First 1
+          if ($null -eq $msi) {
+            throw 'cargo-bundle did not produce an MSI'
+          }
+          Copy-Item $msi.FullName "dist/memelith-${env:RELEASE_VERSION}-windows-x86_64.msi"
+
+          $executable = 'target/release/memelith.exe'
+          if (-not (Test-Path $executable -PathType Leaf)) {
+            throw 'cargo did not produce target/release/memelith.exe'
+          }
+          Compress-Archive -Path $executable -DestinationPath "dist/memelith-${env:RELEASE_VERSION}-portable-windows-x86_64.zip" -Force
+
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          mapfile -t assets < <(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          ((${#assets[@]} > 0)) || { echo 'No release assets were downloaded' >&2; exit 1; }
+          sha256sum "${assets[@]}" > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Memelith ${{ github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ needs.validate.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true

@@ -1,0 +1,45 @@
+[package]
+name = "memelith"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "memelith"
+path = "src/main.rs"
+
+[package.metadata.bundle]
+name = "Memelith"
+identifier = "org.memelith.app"
+category = "Graphics and Design"
+short_description = "A local meme library and collector."
+icon = [
+    "apps/gui/icons/32x32.png",
+    "apps/gui/icons/128x128.png",
+    "apps/gui/icons/128x128@2x.png",
+    "apps/gui/icons/icon.icns",
+    "apps/gui/icons/icon.ico",
+]
+osx_minimum_system_version = "14.0"
+
+[dependencies]
+dirs = "6.0.0"
+gpui.workspace = true
+hex = "0.4.3"
+image = { version = "0.25.9", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+memelith-clip.workspace = true
+memelith-core.workspace = true
+nom = "8.0.0"
+regex = "1.13.0"
+reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+unicode-normalization = "0.1.25"
+unicode-segmentation = "1.12.0"
+uuid = "1.19.0"
+waifu-sensor.workspace = true
+
+[dev-dependencies]
+tempfile = "3.23.0"

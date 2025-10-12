@@ -1,0 +1,8 @@
+{
+  "bundle_id": "f1e3b79b-f01b-5443-a397-5065a5ef9d3b",
+  "revision": 1,
+  "source": "RimoChan/waifu-sensor@e2c4c08cee7d6a19b77ae582e7dacdf565a23c00:v3",
+  "feature_schema": "features.json",
+  "characters": "characters.json.xz",
+  "characters_sha256": "5ad3f403a097923a2cfb6a22ebf7b84eb7c547c87c5199a070268274f7482b7d"
+}
