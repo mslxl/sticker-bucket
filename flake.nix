@@ -1,66 +1,53 @@
 {
-  description = "A Nix-flake-based Rust development environment";
+  description = "Rust app";
 
   inputs = {
-    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1"; # unstable Nixpkgs
     fenix = {
-      url = "https://flakehub.com/f/nix-community/fenix/0.1";
+      url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = {self, ...} @ inputs: let
-    supportedSystems = [
-      "x86_64-linux"
-      "aarch64-linux"
-      "x86_64-darwin"
-      "aarch64-darwin"
-    ];
-    forEachSupportedSystem = f:
-      inputs.nixpkgs.lib.genAttrs supportedSystems (
-        system:
-          f {
-            pkgs = import inputs.nixpkgs {
-              inherit system;
-              overlays = [
-                inputs.self.overlays.default
-              ];
-            };
-          }
-      );
-  in {
-    overlays.default = final: prev: {
-      rustToolchain = with inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
-        combine (
-          with stable; [
-            clippy
-            rustc
+  outputs =
+    {
+      self,
+      nixpkgs,
+      utils,
+      fenix,
+    }:
+    utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ fenix.overlays.default ];
+        };
+        toolchain = fenix.packages.${system}.combine (
+          with fenix.packages.${system}.stable;
+          [
             cargo
-            rustfmt
+            rustc
             rust-src
+            clippy
+            rustfmt
           ]
         );
-    };
+        buildInputs = [
+          toolchain
+          pkgs.pkg-config
+          pkgs.diesel-cli
+          pkgs.cargo-tauri
+        ];
+      in
+      {
+        # Used by `nix develop`
+        devShell = pkgs.mkShell {
+          inherit buildInputs;
 
-    devShells = forEachSupportedSystem (
-      {pkgs}: {
-        default = pkgs.mkShellNoCC {
-          packages = with pkgs; [
-            rustToolchain
-            openssl
-            pkg-config
-            cargo-deny
-            cargo-edit
-            cargo-watch
-            rust-analyzer
-          ];
-
-          env = {
-            # Required by rust-analyzer
-            RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
-          };
+          # Specify the rust-src path (many editors rely on this)
+          RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
       }
     );
-  };
 }

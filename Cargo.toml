@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "apps/gui",
+    "crates/core",
+    "crates/character-segmentation",
+    "crates/waifu-sensor",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+memelith-core = { path = "crates/core" }
+waifu-sensor = { path = "crates/waifu-sensor" }
