@@ -34,6 +34,7 @@ const THIRD_LAYER_WEIGHTS: usize = 8;
 const FIRST_LAYER_BIAS_OFFSET: usize = 152;
 const SECOND_LAYER_BIAS_OFFSET: usize = 160;
 const THIRD_LAYER_BIAS_OFFSET: usize = 168;
+const CROSS_MODEL_MASK_IOU_THRESHOLD: f32 = 0.5;
 
 /// Errors returned by the segmentation APIs.
 #[derive(Debug, Error)]
@@ -82,10 +83,12 @@ pub struct MergedSegmentation {
     pub mask: GrayImage,
 }
 
-/// Merges AnimeInsSeg and YOLO11 results using confidence-ordered bounding-box NMS.
+/// Merges AnimeInsSeg and YOLO11 results using confidence-ordered box and mask NMS.
 ///
 /// Callers should filter YOLO11 results to the desired character class before
-/// invoking this function. Raw backend results are not modified.
+/// invoking this function. A candidate is suppressed when either its bounding-box
+/// IoU exceeds `iou_threshold` or its binary mask IoU exceeds 0.5. Raw backend
+/// results are not modified.
 pub fn merge_segmentations(
     anime: &[AnimeInsSegmentation],
     yolo: &[Yolo11Segmentation],
@@ -124,10 +127,13 @@ pub fn merge_segmentations(
     let mut selected: Vec<MergedSegmentation> = Vec::new();
     'candidate: for candidate in candidates {
         for existing in &selected {
-            if candidate
+            let bounding_box_iou = candidate
                 .bounding_box
-                .intersection_over_union(existing.bounding_box)
-                > iou_threshold
+                .intersection_over_union(existing.bounding_box);
+            if bounding_box_iou > iou_threshold
+                || (bounding_box_iou > 0.0
+                    && binary_mask_intersection_over_union(&candidate.mask, &existing.mask)?
+                        > CROSS_MODEL_MASK_IOU_THRESHOLD)
             {
                 continue 'candidate;
             }
@@ -135,6 +141,32 @@ pub fn merge_segmentations(
         selected.push(candidate);
     }
     Ok(selected)
+}
+
+fn binary_mask_intersection_over_union(left: &GrayImage, right: &GrayImage) -> Result<f32> {
+    if left.dimensions() != right.dimensions() {
+        return Err(Error::InvalidConfiguration(format!(
+            "cannot compare masks with different dimensions: {}x{} and {}x{}",
+            left.width(),
+            left.height(),
+            right.width(),
+            right.height()
+        )));
+    }
+
+    let mut intersection = 0_u64;
+    let mut union = 0_u64;
+    for (left_pixel, right_pixel) in left.pixels().zip(right.pixels()) {
+        let left_foreground = left_pixel[0] > 0;
+        let right_foreground = right_pixel[0] > 0;
+        intersection += u64::from(left_foreground && right_foreground);
+        union += u64::from(left_foreground || right_foreground);
+    }
+    if union == 0 {
+        Ok(0.0)
+    } else {
+        Ok(intersection as f32 / union as f32)
+    }
 }
 
 /// AnimeInsSeg and YOLO11 sessions that run concurrently for each image.
@@ -1074,6 +1106,39 @@ mod tests {
         assert_eq!(merged[0].mask.get_pixel(0, 0), &Luma([128]));
         assert_eq!(merged[1].backend, SegmentationBackend::AnimeInsSeg);
         assert_eq!(merged[1].bounding_box.x, 100.0);
+    }
+
+    #[test]
+    fn cross_model_nms_suppresses_duplicate_masks_when_boxes_differ() {
+        let shared_mask = GrayImage::from_pixel(4, 4, Luma([255]));
+        let anime = vec![Segmentation {
+            confidence: 0.95,
+            bounding_box: BoundingBox {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            mask: shared_mask.clone(),
+        }];
+        let yolo = vec![Yolo11Segmentation {
+            class_id: 0,
+            class_name: "person".to_owned(),
+            confidence: 0.9,
+            bounding_box: Yolo11BoundingBox {
+                x: 25.0,
+                y: 25.0,
+                width: 50.0,
+                height: 50.0,
+            },
+            mask: shared_mask,
+        }];
+
+        let merged = merge_segmentations(&anime, &yolo, 0.6).unwrap();
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].backend, SegmentationBackend::AnimeInsSeg);
+        assert_eq!(merged[0].confidence, 0.95);
     }
 
     #[test]
