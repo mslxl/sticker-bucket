@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "apps/gui",
+    "crates/clip",
     "crates/core",
     "crates/character-segmentation",
+    "crates/liquid-glass",
     "crates/waifu-sensor",
 ]
 resolver = "3"
@@ -14,5 +16,7 @@ license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+liquid-glass = { path = "crates/liquid-glass" }
 memelith-core = { path = "crates/core" }
+memelith-clip = { path = "crates/clip" }
 waifu-sensor = { path = "crates/waifu-sensor" }

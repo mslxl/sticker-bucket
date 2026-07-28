@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "chinese-clip-vit-base-patch16-fp32",
+  "source": "OFA-Sys/chinese-clip-vit-base-patch16",
+  "revision": "36e679e65c2a2fead755ae21162091293ad37834",
+  "license": null,
+  "embedding_dimension": 512,
+  "text_model": "text_encoder.onnx",
+  "image_model": "image_encoder.onnx",
+  "tokenizer": "tokenizer.json",
+  "context_length": 512,
+  "pad_token_id": 0,
+  "image_size": 224,
+  "image_resize": "stretch",
+  "image_mean": [
+    0.48145466,
+    0.4578275,
+    0.40821073
+  ],
+  "image_std": [
+    0.26862954,
+    0.26130258,
+    0.27577711
+  ]
+}

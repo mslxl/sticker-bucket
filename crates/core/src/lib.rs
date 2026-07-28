@@ -1,5 +1,18 @@
 #![forbid(unsafe_code)]
 
+mod database;
+mod embedding;
+mod error;
+mod model;
+
+pub use database::MemeDatabase;
+pub use embedding::{EmbeddingProvider, EmbeddingProviderError};
+pub use error::{Error, Result};
+pub use model::{
+    EffectiveTag, ImageFormat, Meme, MemeContent, MemeImage, MemePack, MemeText, NewMeme,
+    NewMemeContent, NewMemePack, NewTag, Tag, UpdateMemeMetadata, UpdateMemePack,
+};
+
 pub const APPLICATION_NAME: &str = "Memelith";
 
 /// Application state owned by the Memelith frontend.

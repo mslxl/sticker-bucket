@@ -1,0 +1,10 @@
+[package]
+name = "liquid-glass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Liquid Glass design-language widget library for gpui"
+
+[dependencies]
+gpui.workspace = true
+unicode-segmentation = "1.12.0"

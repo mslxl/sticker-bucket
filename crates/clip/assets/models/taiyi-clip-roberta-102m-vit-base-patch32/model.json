@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "taiyi-clip-roberta-102m-vit-base-patch32-fp32",
+  "source": "IDEA-CCNL/Taiyi-CLIP-Roberta-102M-Chinese + openai/clip-vit-base-patch32",
+  "revision": "bc37cdc4554e7d30b11659221736cf9d7d35ee33 + 3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268",
+  "license": "Apache-2.0 and MIT",
+  "embedding_dimension": 512,
+  "text_model": "text_encoder.onnx",
+  "image_model": "image_encoder.onnx",
+  "tokenizer": "tokenizer.json",
+  "context_length": 512,
+  "pad_token_id": 0,
+  "image_size": 224,
+  "image_resize": "shortest-edge-center-crop",
+  "image_mean": [
+    0.48145466,
+    0.4578275,
+    0.40821073
+  ],
+  "image_std": [
+    0.26862954,
+    0.26130258,
+    0.27577711
+  ]
+}
