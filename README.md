@@ -3,6 +3,8 @@
 This repository is a Rust workspace containing:
 
 - `memelith-core`: Memelith's application core.
+- `memelith-clip`: local Chinese text and image CLIP embedding with bundled
+  FP32 ONNX models.
 - `waifu-sensor`: an independent Rust library and optional CLI for explainable
   anime character retrieval.
 - `character-segmentation`: a Rust library and CLI that runs AnimeInsSeg and
@@ -54,6 +56,10 @@ Start the GUI:
 ```sh
 cargo run -p memelith
 ```
+
+Bundled ONNX artifacts are stored through Git LFS. Their pinned upstream
+download or export sources are listed in
+[`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
 
 The workspace enables GPUI's `runtime_shaders` feature so macOS development does
 not require the Metal command-line compiler. Release packaging can disable this
