@@ -28,7 +28,6 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Model(ModelCommand),
     Db(DbCommand),
     Predict(PredictCommand),
     WhyNot(WhyNotCommand),
@@ -39,24 +38,6 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct PathsCommand {}
-
-#[derive(Debug, Args)]
-struct ModelCommand {
-    #[command(subcommand)]
-    command: ModelSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-enum ModelSubcommand {
-    Fetch {
-        /// Override the built-in model manifest.
-        #[arg(long)]
-        manifest: Option<PathBuf>,
-        /// Override the platform-native model cache directory.
-        #[arg(long)]
-        cache: Option<PathBuf>,
-    },
-}
 
 #[derive(Debug, Args)]
 struct DbCommand {
@@ -86,9 +67,6 @@ struct RuntimeOptions {
     /// Override the built-in model manifest and adjacent class list.
     #[arg(long)]
     model_manifest: Option<PathBuf>,
-    /// Override the platform-native model cache directory.
-    #[arg(long)]
-    model_cache: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = ProviderArgument::Auto)]
     provider: ProviderArgument,
 }
@@ -187,25 +165,12 @@ struct TrainFeaturesCommand {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Model(command) => run_model(command),
         Command::Db(command) => run_db(command),
         Command::Predict(command) => run_predict(command),
         Command::WhyNot(command) => run_why_not(command),
         Command::Character(command) => run_character(command),
         Command::TrainFeatures(command) => run_train_features(command),
         Command::Paths(command) => run_paths(command),
-    }
-}
-
-fn run_model(command: ModelCommand) -> Result<()> {
-    match command.command {
-        ModelSubcommand::Fetch { manifest, cache } => {
-            let manifest = resolve_model_manifest(manifest.as_deref())?;
-            let cache = resolve_model_cache(cache.as_deref())?;
-            let path = fetch_model(&manifest, &cache)?;
-            println!("{}", path.display());
-            Ok(())
-        }
     }
 }
 
@@ -322,8 +287,6 @@ fn run_paths(command: PathsCommand) -> Result<()> {
     let PathsCommand {} = command;
     println!("data\t{}", paths.data_dir.display());
     println!("database\t{}", paths.database.display());
-    println!("cache\t{}", paths.cache_dir.display());
-    println!("model-cache\t{}", paths.model_cache.display());
     println!("bundles\t{}", paths.bundles.display());
     Ok(())
 }
@@ -339,17 +302,16 @@ fn open_sensor(options: &RuntimeOptions) -> Result<WaifuSensor> {
             bundle.feature_schema.model_id
         );
     }
-    let model_cache = resolve_model_cache(options.model_cache.as_deref())?;
-    let model_path = fetch_model(model_manifest, &model_cache)?;
+    ModelManager::verify(model_manifest, &model_resources.model_path)?;
     let tagger = match model_resources.classes {
         ModelClasses::Builtin(classes) => MlDanbooruTagger::load_with_classes(
-            model_path,
+            &model_resources.model_path,
             &classes,
             bundle.feature_schema.clone(),
             options.provider.policy(),
         )?,
         ModelClasses::Path(path) => MlDanbooruTagger::load(
-            model_path,
+            &model_resources.model_path,
             path,
             bundle.feature_schema.clone(),
             options.provider.policy(),
@@ -378,21 +340,6 @@ fn resolve_database(override_path: Option<&Path>) -> Result<PathBuf> {
         Some(path) => Ok(path.to_owned()),
         None => Ok(PlatformPaths::discover()?.database),
     }
-}
-
-fn resolve_model_cache(override_path: Option<&Path>) -> Result<PathBuf> {
-    match override_path {
-        Some(path) => Ok(path.to_owned()),
-        None => Ok(PlatformPaths::discover()?.model_cache),
-    }
-}
-
-fn fetch_model(manifest: &ModelManifest, cache: &Path) -> Result<PathBuf> {
-    let path = ModelManager::cached_path(manifest, cache);
-    if !path.is_file() {
-        eprintln!("downloading model to {}", path.display());
-    }
-    Ok(ModelManager::fetch(manifest, cache)?)
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -432,6 +379,7 @@ enum ModelClasses {
 struct ModelResources {
     manifest: ModelManifest,
     classes: ModelClasses,
+    model_path: PathBuf,
 }
 
 fn resolve_model_manifest(override_path: Option<&Path>) -> Result<ModelManifest> {
@@ -450,14 +398,17 @@ fn resolve_model_resources(override_path: Option<&Path>) -> Result<ModelResource
                 .parent()
                 .context("model manifest path has no parent directory")?;
             let classes = directory.join(&manifest.classes);
+            let model_path = ModelManager::path_in(&manifest, directory);
             Ok(ModelResources {
                 manifest,
                 classes: ModelClasses::Path(classes),
+                model_path,
             })
         }
         None => Ok(ModelResources {
             manifest: BuiltinAssets::model_manifest()?,
             classes: ModelClasses::Builtin(BuiltinAssets::model_classes()?),
+            model_path: BuiltinAssets::model_path()?,
         }),
     }
 }
@@ -475,48 +426,9 @@ fn open_database(path: &Path) -> Result<Connection> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Read, Write},
-        net::TcpListener,
-        thread,
-        time::{Duration, Instant},
-    };
-
     use clap::Parser;
-    use sha2::{Digest, Sha256};
 
-    use super::{BundleSource, Cli, Command, ModelSubcommand};
-
-    #[test]
-    fn model_fetch_accepts_the_platform_cache_default() {
-        let cli = Cli::try_parse_from([
-            "waifu-sensor",
-            "model",
-            "fetch",
-            "--manifest",
-            "manifest.json",
-        ])
-        .unwrap();
-
-        let Command::Model(command) = cli.command else {
-            panic!("expected model command");
-        };
-        let ModelSubcommand::Fetch { manifest, cache } = command.command;
-        assert_eq!(manifest, Some("manifest.json".into()));
-        assert_eq!(cache, None);
-    }
-
-    #[test]
-    fn model_fetch_accepts_the_builtin_manifest_default() {
-        let cli = Cli::try_parse_from(["waifu-sensor", "model", "fetch"]).unwrap();
-
-        let Command::Model(command) = cli.command else {
-            panic!("expected model command");
-        };
-        let ModelSubcommand::Fetch { manifest, cache } = command.command;
-        assert_eq!(manifest, None);
-        assert_eq!(cache, None);
-    }
+    use super::{BundleSource, Cli, Command, ModelClasses};
 
     #[test]
     fn database_sync_accepts_the_builtin_bundle_default() {
@@ -628,10 +540,7 @@ mod tests {
     #[test]
     fn bundle_selection_prefers_explicit_then_installed_then_builtin() {
         let directory = tempfile::tempdir().unwrap();
-        let paths = waifu_sensor::PlatformPaths::from_roots(
-            directory.path().join("data"),
-            directory.path().join("cache"),
-        );
+        let paths = waifu_sensor::PlatformPaths::from_data_root(directory.path().join("data"));
 
         assert_eq!(
             super::select_bundle_source(None, &paths),
@@ -668,85 +577,30 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_sensor_downloads_a_missing_model_into_the_cache() {
-        let model_bytes = b"not an onnx model";
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let server = thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
-            loop {
-                match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        stream.set_nonblocking(false).unwrap();
-                        let mut request = [0_u8; 4096];
-                        let request_size = stream.read(&mut request).unwrap();
-                        assert!(
-                            request[..request_size].starts_with(b"GET /test.onnx HTTP/1.1\r\n")
-                        );
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                            model_bytes.len()
-                        );
-                        stream.write_all(response.as_bytes()).unwrap();
-                        stream.write_all(model_bytes).unwrap();
-                        return;
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(
-                            Instant::now() < deadline,
-                            "model download was not requested"
-                        );
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(error) => panic!("model test server failed: {error}"),
-                }
-            }
-        });
-
+    fn custom_model_is_loaded_next_to_its_manifest() {
         let directory = tempfile::tempdir().unwrap();
         let manifest_path = directory.path().join("manifest.json");
-        let classes_path = directory.path().join("classes.json");
-        let model_cache = directory.path().join("models");
-        std::fs::write(&classes_path, b"[]").unwrap();
         std::fs::write(
             &manifest_path,
             serde_json::to_vec(&serde_json::json!({
-                "id": "ml_caformer_m36_dec-5-97527",
+                "id": "test-model",
                 "filename": "test.onnx",
-                "url": format!("http://{address}/test.onnx"),
-                "sha256": hex::encode(Sha256::digest(model_bytes)),
+                "url": "https://example.invalid/test.onnx",
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
                 "classes": "classes.json"
             }))
             .unwrap(),
         )
         .unwrap();
-        let options = super::RuntimeOptions {
-            database: super::DatabaseOptions {
-                database: Some(directory.path().join("test.sqlite3")),
-                bundle: Some(
-                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/bundles/v3"),
-                ),
-            },
-            model_manifest: Some(manifest_path),
-            model_cache: Some(model_cache.clone()),
-            provider: super::ProviderArgument::Cpu,
-        };
 
-        let error = match super::open_sensor(&options) {
-            Ok(_) => panic!("invalid test classes unexpectedly loaded a sensor"),
-            Err(error) => error,
-        };
-        assert!(
-            error
-                .to_string()
-                .contains("model classes do not contain optimized feature"),
-            "unexpected error after model download: {error:#}"
-        );
-        assert_eq!(
-            std::fs::read(model_cache.join("test.onnx")).unwrap(),
-            model_bytes
-        );
-        server.join().unwrap();
+        let resources = super::resolve_model_resources(Some(&manifest_path)).unwrap();
+
+        assert_eq!(resources.model_path, directory.path().join("test.onnx"));
+        match resources.classes {
+            ModelClasses::Path(path) => {
+                assert_eq!(path, directory.path().join("classes.json"));
+            }
+            ModelClasses::Builtin(_) => panic!("custom model unexpectedly used built-in classes"),
+        }
     }
 }

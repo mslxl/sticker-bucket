@@ -25,7 +25,7 @@ paths.create()?;
 let bundle = BuiltinAssets::bundle()?;
 let model_manifest = BuiltinAssets::model_manifest()?;
 let model_classes = BuiltinAssets::model_classes()?;
-let model = ModelManager::cached_path(&model_manifest, &paths.model_cache);
+let model = BuiltinAssets::model_path()?;
 ModelManager::verify(&model_manifest, &model)?;
 let tagger = MlDanbooruTagger::load_with_classes(
     model,
@@ -77,9 +77,6 @@ images.
 ```sh
 cargo build -p waifu-sensor --features cli --bin waifu-sensor
 
-# Optional prefetch; runtime commands download the model when it is missing.
-waifu-sensor model fetch
-
 waifu-sensor db sync
 
 waifu-sensor character add \
@@ -91,13 +88,13 @@ waifu-sensor character add-images \
   --character "tomari mari" another-image.png
 ```
 
-The CLI embeds the default bundle, model manifest, and class list. `--bundle`
-and `--model-manifest` are optional development or custom-resource overrides;
-`--database`, `--cache`, and `--model-cache` override mutable platform-native
-locations. `predict`, `why-not`, `character add`, and `character add-images`
-automatically download and verify a missing ONNX model before opening the
-sensor. Run `waifu-sensor paths` to inspect the effective paths on the current
-machine.
+The CLI uses the default bundle, model manifest, class list, and ONNX model from
+this crate's `assets` directory. `--bundle` and `--model-manifest` are optional
+development or custom-resource overrides; a custom manifest loads both its
+class list and model filename relative to the manifest directory. The model is
+verified before opening the sensor, and a missing or invalid file fails without
+network access. `--database` overrides the mutable platform-native database
+location. Run `waifu-sensor paths` to inspect the effective data paths.
 
 Human-facing commands select characters by their case-insensitive canonical
 name. The CLI emits only human-readable text and does not expose internal UUIDs.
@@ -114,23 +111,22 @@ Keep immutable, versioned inputs in this crate:
 
 - `assets/bundles/<revision>/`: manifest, optimized feature schema, and compressed
   character vectors.
-- `assets/models/<model>/`: checksum/URL manifest and the small model class list.
+- `assets/models/<model>/`: ONNX model, checksum/source manifest, and class list.
 - `assets/fixtures/`: small test-only images.
 
-Keep mutable or large runtime files outside the repository. Put the SQLite file
-in the host application's platform data directory and the downloaded ONNX model
-in its platform cache directory. `PlatformPaths::discover` and the CLI use this
-layout:
+The ONNX model is versioned with Git LFS and loaded directly from the repository.
+Mutable SQLite data remains in the host application's platform data directory.
+`PlatformPaths::discover` and the CLI use this layout:
 
-| Platform | Database root | Model cache root |
-| --- | --- | --- |
-| Linux | `$XDG_DATA_HOME/waifu-sensor` | `$XDG_CACHE_HOME/waifu-sensor` |
-| macOS | `~/Library/Application Support/waifu-sensor` | `~/Library/Caches/waifu-sensor` |
-| Windows | `%LOCALAPPDATA%\\waifu-sensor` | `%LOCALAPPDATA%\\waifu-sensor` |
+| Platform | Database root |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/waifu-sensor` |
+| macOS | `~/Library/Application Support/waifu-sensor` |
+| Windows | `%LOCALAPPDATA%\\waifu-sensor` |
 
 When an XDG variable is unset, the platform library applies the standard XDG
-fallback. The database filename is `waifu-sensor.sqlite3`; models go below the
-`models` cache subdirectory. The CLI loads bundle data in this order:
+fallback. The database filename is `waifu-sensor.sqlite3`. The CLI loads bundle
+data in this order:
 
 1. an explicit `--bundle` directory;
 2. the platform data directory's `bundles/current` directory when it contains a

@@ -4,9 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(feature = "download")]
-use std::io::Write;
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -82,8 +79,8 @@ pub enum ExecutionPolicy {
 pub struct ModelManager;
 
 impl ModelManager {
-    pub fn cached_path(manifest: &ModelManifest, cache_directory: impl AsRef<Path>) -> PathBuf {
-        cache_directory.as_ref().join(&manifest.filename)
+    pub fn path_in(manifest: &ModelManifest, directory: impl AsRef<Path>) -> PathBuf {
+        directory.as_ref().join(&manifest.filename)
     }
 
     pub fn verify(manifest: &ModelManifest, path: impl AsRef<Path>) -> Result<()> {
@@ -100,33 +97,6 @@ impl ModelManager {
             });
         }
         Ok(())
-    }
-
-    #[cfg(feature = "download")]
-    pub fn fetch(manifest: &ModelManifest, cache_directory: impl AsRef<Path>) -> Result<PathBuf> {
-        let cache_directory = cache_directory.as_ref();
-        std::fs::create_dir_all(cache_directory)?;
-        let destination = Self::cached_path(manifest, cache_directory);
-        if destination.is_file() {
-            Self::verify(manifest, &destination)?;
-            return Ok(destination);
-        }
-
-        let temporary = destination.with_extension("onnx.part");
-        if temporary.exists() {
-            std::fs::remove_file(&temporary)?;
-        }
-        let response = ureq::get(&manifest.url)
-            .call()
-            .map_err(|error| Error::Download(Box::new(error)))?;
-        let mut reader = response.into_body().into_reader();
-        let mut output = File::create(&temporary)?;
-        std::io::copy(&mut reader, &mut output)?;
-        output.flush()?;
-        drop(output);
-        Self::verify(manifest, &temporary)?;
-        std::fs::rename(&temporary, &destination)?;
-        Ok(destination)
     }
 }
 

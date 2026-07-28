@@ -21,10 +21,6 @@ pub enum Error {
     #[error("ONNX Runtime operation failed: {0}")]
     Onnx(#[from] ort::Error),
 
-    #[cfg(feature = "download")]
-    #[error("model download failed: {0}")]
-    Download(#[from] Box<ureq::Error>),
-
     #[error("feature schema is invalid: {0}")]
     InvalidFeatureSchema(String),
 

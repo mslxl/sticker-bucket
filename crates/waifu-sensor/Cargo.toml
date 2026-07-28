@@ -14,9 +14,8 @@ path = "src/bin/waifu-sensor.rs"
 required-features = ["cli"]
 
 [features]
-default = ["download", "onnx"]
-cli = ["dep:anyhow", "dep:clap", "download", "onnx"]
-download = ["dep:ureq"]
+default = ["onnx"]
+cli = ["dep:anyhow", "dep:clap", "onnx"]
 onnx = ["dep:ndarray", "dep:ort"]
 
 [dependencies]
@@ -36,7 +35,6 @@ serde_json = "1.0.148"
 sha2 = "0.10.9"
 sqlite-vec = "=0.1.7"
 thiserror = "2.0.17"
-ureq = { version = "3.1.4", optional = true }
 uuid = { version = "1.19.0", features = ["serde", "v4", "v5"] }
 xz2 = "0.1.7"
 
