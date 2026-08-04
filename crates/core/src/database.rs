@@ -12,8 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     EffectiveTag, EmbeddingProvider, Error, ImageFormat, Meme, MemeContent, MemeImage, MemePack,
-    MemeText, NewMeme, NewMemeContent, NewMemePack, NewTag, Result, Tag, UpdateMemeMetadata,
-    UpdateMemePack,
+    MemeText, NewMeme, NewMemeContent, NewMemePack, NewTag, Result, SimilarMemeImage, Tag,
+    UpdateMemeMetadata, UpdateMemePack,
 };
 
 const SCHEMA_VERSION: i64 = 1;
@@ -91,6 +91,67 @@ impl MemeDatabase {
 
     pub fn resolve_media_path(&self, relative_path: impl AsRef<Path>) -> Result<PathBuf> {
         resolve_media_path(&self.storage_root, relative_path.as_ref())
+    }
+
+    pub fn resolve_media_path_from_root(
+        storage_root: impl AsRef<Path>,
+        relative_path: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        resolve_media_path(storage_root.as_ref(), relative_path.as_ref())
+    }
+
+    pub fn find_similar_images(
+        &mut self,
+        source_path: impl AsRef<Path>,
+        max_cosine_distance: f32,
+    ) -> Result<Vec<SimilarMemeImage>> {
+        if !max_cosine_distance.is_finite() || !(0.0..=2.0).contains(&max_cosine_distance) {
+            return Err(Error::InvalidCosineDistanceThreshold(max_cosine_distance));
+        }
+
+        let analyzed = self.analyze_image_source(source_path.as_ref().to_path_buf())?;
+        let mut statement = self.connection.prepare(
+            "SELECT c.id, c.meme_id, m.name, c.relative_path, c.embedding
+             FROM meme_contents c
+             JOIN memes m ON m.id = c.meme_id
+             WHERE c.kind = 'image'",
+        )?;
+        let candidates = statement
+            .query_map([], |row| {
+                Ok((
+                    uuid_from_column(row, 0)?,
+                    uuid_from_column(row, 1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut matches = Vec::new();
+        for (content_id, meme_id, meme_name, relative_path, embedding) in candidates {
+            let relative_path = PathBuf::from(relative_path);
+            let absolute_path = resolve_media_path(&self.storage_root, &relative_path)?;
+            if !absolute_path.is_file() {
+                return Err(Error::MissingMedia(absolute_path));
+            }
+            let distance = cosine_distance_between_encoded_embeddings(
+                &analyzed.embedding,
+                &embedding,
+                self.embedding_dimension,
+            )?;
+            if distance <= max_cosine_distance {
+                matches.push(SimilarMemeImage {
+                    content_id,
+                    meme_id,
+                    meme_name,
+                    relative_path,
+                    cosine_distance: distance,
+                });
+            }
+        }
+        matches.sort_by(|left, right| left.cosine_distance.total_cmp(&right.cosine_distance));
+        Ok(matches)
     }
 
     pub fn create_meme_pack(&mut self, input: NewMemePack) -> Result<MemePack> {
@@ -549,34 +610,48 @@ impl MemeDatabase {
                 })
             }
             NewMemeContent::Image { source_path } => {
-                let (format, decoded) = decode_supported_image(&source_path)?;
-                let metadata = fs::metadata(&source_path)?;
-                if !metadata.is_file() {
-                    return Err(Error::UnsupportedImageFormat(source_path));
-                }
-                let width = decoded.width();
-                let height = decoded.height();
-                let vector = self
-                    .embedding_provider
-                    .embed_image(&decoded)
-                    .map_err(Error::EmbeddingProvider)?;
-                let embedding = encode_embedding("Meme image", vector, self.embedding_dimension)?;
-                let relative_path =
-                    PathBuf::from(format!("{MEDIA_DIRECTORY}/{id}.{}", format.extension()));
+                let analyzed = self.analyze_image_source(source_path)?;
+                let relative_path = PathBuf::from(format!(
+                    "{MEDIA_DIRECTORY}/{id}.{}",
+                    analyzed.format.extension()
+                ));
                 let final_path = resolve_media_path(&self.storage_root, &relative_path)?;
                 Ok(PreparedContent::Image {
                     id,
-                    source_path,
+                    source_path: analyzed.source_path,
                     relative_path,
                     final_path,
-                    width,
-                    height,
-                    byte_size: metadata.len(),
-                    format,
-                    embedding,
+                    width: analyzed.width,
+                    height: analyzed.height,
+                    byte_size: analyzed.byte_size,
+                    format: analyzed.format,
+                    embedding: analyzed.embedding,
                 })
             }
         }
+    }
+
+    fn analyze_image_source(&mut self, source_path: PathBuf) -> Result<AnalyzedImageSource> {
+        let (format, decoded) = decode_supported_image(&source_path)?;
+        let metadata = fs::metadata(&source_path)?;
+        if !metadata.is_file() {
+            return Err(Error::UnsupportedImageFormat(source_path));
+        }
+        let width = decoded.width();
+        let height = decoded.height();
+        let vector = self
+            .embedding_provider
+            .embed_image(&decoded)
+            .map_err(Error::EmbeddingProvider)?;
+        let embedding = encode_embedding("Meme image", vector, self.embedding_dimension)?;
+        Ok(AnalyzedImageSource {
+            source_path,
+            width,
+            height,
+            byte_size: metadata.len(),
+            format,
+            embedding,
+        })
     }
 
     fn contents_for_meme(&self, meme_id: Uuid) -> Result<Vec<MemeContent>> {
@@ -900,6 +975,16 @@ fn validate_database_metadata(
 }
 
 #[derive(Debug)]
+struct AnalyzedImageSource {
+    source_path: PathBuf,
+    width: u32,
+    height: u32,
+    byte_size: u64,
+    format: ImageFormat,
+    embedding: Vec<u8>,
+}
+
+#[derive(Debug)]
 enum PreparedContent {
     Image {
         id: Uuid,
@@ -1208,6 +1293,65 @@ fn encode_embedding(
         encoded.extend_from_slice(&value.to_le_bytes());
     }
     Ok(encoded)
+}
+
+fn cosine_distance_between_encoded_embeddings(
+    left: &[u8],
+    right: &[u8],
+    expected_dimension: usize,
+) -> Result<f32> {
+    let left = decode_embedding("query image", left, expected_dimension)?;
+    let right = decode_embedding("stored image", right, expected_dimension)?;
+    let mut dot = 0.0_f64;
+    let mut left_squared_norm = 0.0_f64;
+    let mut right_squared_norm = 0.0_f64;
+    for (left, right) in left.iter().zip(&right) {
+        let left = f64::from(*left);
+        let right = f64::from(*right);
+        dot += left * right;
+        left_squared_norm += left * left;
+        right_squared_norm += right * right;
+    }
+    if left_squared_norm <= f64::EPSILON || right_squared_norm <= f64::EPSILON {
+        return Err(Error::InvalidDatabase(
+            "image embedding has zero L2 norm".to_owned(),
+        ));
+    }
+    let similarity =
+        (dot / (left_squared_norm.sqrt() * right_squared_norm.sqrt())).clamp(-1.0, 1.0);
+    Ok((1.0 - similarity) as f32)
+}
+
+fn decode_embedding(
+    field: &'static str,
+    encoded: &[u8],
+    expected_dimension: usize,
+) -> Result<Vec<f32>> {
+    let expected_bytes = expected_dimension
+        .checked_mul(size_of::<f32>())
+        .ok_or_else(|| Error::InvalidDatabase("embedding byte length exceeds usize".to_owned()))?;
+    if encoded.len() != expected_bytes {
+        return Err(Error::InvalidDatabase(format!(
+            "{field} embedding has {} bytes; expected {expected_bytes}",
+            encoded.len()
+        )));
+    }
+    encoded
+        .chunks_exact(size_of::<f32>())
+        .enumerate()
+        .map(|(index, bytes)| {
+            let bytes: [u8; size_of::<f32>()] = bytes.try_into().map_err(|_| {
+                Error::InvalidDatabase(format!("{field} embedding value {index} is truncated"))
+            })?;
+            let value = f32::from_le_bytes(bytes);
+            if !value.is_finite() {
+                return Err(Error::InvalidDatabase(format!(
+                    "{field} embedding contains a non-finite value at index {index}"
+                )));
+            }
+            Ok(value)
+        })
+        .collect()
 }
 
 fn decode_supported_image(path: &Path) -> Result<(ImageFormat, DynamicImage)> {

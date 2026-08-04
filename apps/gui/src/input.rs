@@ -2,10 +2,10 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
-    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
-    point, prelude::*, px, relative, rgb, rgba, size,
+    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
+    fill, hsla, point, prelude::*, px, relative, rgb, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -57,6 +57,10 @@ pub struct TextInput {
     is_selecting: bool,
 }
 
+pub struct TextChanged;
+
+impl EventEmitter<TextChanged> for TextInput {}
+
 impl TextInput {
     pub fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
         Self {
@@ -77,13 +81,19 @@ impl TextInput {
     }
 
     pub fn reset(&mut self, cx: &mut Context<Self>) {
-        self.content = "".into();
-        self.selected_range = 0..0;
+        self.set_text("", cx);
+    }
+
+    pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        let cursor = self.content.len();
+        self.selected_range = cursor..cursor;
         self.selection_reversed = false;
         self.marked_range = None;
         self.last_layout = None;
         self.last_bounds = None;
         self.is_selecting = false;
+        cx.emit(TextChanged);
         cx.notify();
     }
 
@@ -339,6 +349,7 @@ impl EntityInputHandler for TextInput {
                 .into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
+        cx.emit(TextChanged);
         cx.notify();
     }
 
@@ -365,6 +376,7 @@ impl EntityInputHandler for TextInput {
             .map(|range| self.range_from_utf16(range))
             .map(|selected| selected.start + range.start..selected.end + range.start)
             .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+        cx.emit(TextChanged);
         cx.notify();
     }
 

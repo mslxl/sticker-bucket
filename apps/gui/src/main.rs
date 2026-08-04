@@ -3,30 +3,40 @@ mod settings;
 
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
 use gpui::{
-    AnyElement, App, Application, Bounds, BoxShadow, Context, Div, ElementId, Entity, FontWeight,
-    ObjectFit, PathPromptOptions, SharedString, Stateful, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowControlArea, WindowOptions, div, hsla, img, linear_color_stop,
-    linear_gradient, point, prelude::*, px, rgb, rgba, size,
+    AnyElement, App, Application, Bounds, BoxShadow, Context, Div, ElementId, Entity, Focusable,
+    FontWeight, ObjectFit, PathPromptOptions, SharedString, Stateful, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, div, hsla, img,
+    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba, size,
 };
-use input::TextInput;
+use input::{TextChanged, TextInput};
 use memelith_clip::{BuiltinModel, ClipModel, ExecutionPolicy};
 use memelith_core::{
-    APPLICATION_NAME, Meme, MemeContent, MemeDatabase, NewMeme, NewMemeContent, NewMemePack, NewTag,
+    APPLICATION_NAME, Meme, MemeContent, MemeDatabase, NewMeme, NewMemeContent, NewMemePack,
+    NewTag, SimilarMemeImage, Tag,
 };
 use thiserror::Error;
 use uuid::Uuid;
+use waifu_sensor::{
+    BuiltinAssets as WaifuBuiltinAssets, CharacterMatch, ExecutionPolicy as WaifuExecutionPolicy,
+    MlDanbooruTagger, ModelManager as WaifuModelManager, WaifuSensor,
+};
 
 const INBOX_NAME: &str = "Inbox";
+const DUPLICATE_IMAGE_MAX_COSINE_DISTANCE: f32 = 0.05;
+const MAX_TAG_SUGGESTIONS: usize = 6;
+const WAIFU_SENSOR_DATABASE_FILENAME: &str = "waifu-sensor.sqlite3";
 
 // Apple 系统色板（浅色外观）
 const ACCENT: u32 = 0x007aff; // systemBlue
 const ACCENT_HOVER: u32 = 0x0070e8;
 const ACCENT_PRESS: u32 = 0x0063cc;
 const SUCCESS: u32 = 0x34c759; // systemGreen
+const WARNING: u32 = 0xff9500; // systemOrange
 const DANGER: u32 = 0xff3b30; // systemRed
 const INK: u32 = 0x1d1d1f; // label
 const LABEL_2: u32 = 0x3c3c4399; // secondaryLabel
@@ -206,16 +216,41 @@ impl Page {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 enum DraftContent {
-    Image(PathBuf),
+    Image {
+        path: PathBuf,
+        similar_images: Vec<SimilarMemeImage>,
+    },
     Text(String),
 }
 
 #[derive(Clone, Debug)]
 enum Notice {
+    Info(String),
     Success(String),
+    Warning(String),
     Error(String),
+}
+
+struct ImageAnalysisResult {
+    path: PathBuf,
+    result: Result<Vec<SimilarMemeImage>, String>,
+}
+
+struct ImageAnalysisBatch {
+    database: MemeDatabase,
+    results: Vec<ImageAnalysisResult>,
+}
+
+struct CharacterDetectionResult {
+    path: PathBuf,
+    result: Result<Option<CharacterMatch>, String>,
+}
+
+struct CharacterDetectionBatch {
+    sensor: WaifuSensor,
+    results: Vec<CharacterDetectionResult>,
 }
 
 #[derive(Debug, Error)]
@@ -232,15 +267,18 @@ struct OpenedLibrary {
     inbox_id: Uuid,
     memes: Vec<Meme>,
     pack_names: HashMap<Uuid, String>,
+    tags: Vec<Tag>,
 }
 
 struct MemelithView {
     database: Option<MemeDatabase>,
+    waifu_sensor: Option<WaifuSensor>,
     storage_root: Option<PathBuf>,
     inbox_id: Option<Uuid>,
     page: Page,
     memes: Vec<Meme>,
     pack_names: HashMap<Uuid, String>,
+    tags: Vec<Tag>,
     draft_contents: Vec<DraftContent>,
     name_input: Entity<TextInput>,
     description_input: Entity<TextInput>,
@@ -248,6 +286,8 @@ struct MemelithView {
     text_content_input: Entity<TextInput>,
     notice: Option<Notice>,
     opening_storage: bool,
+    analyzing_images: bool,
+    detecting_characters: bool,
 }
 
 impl MemelithView {
@@ -255,21 +295,29 @@ impl MemelithView {
         saved_storage: Result<Option<PathBuf>, settings::SettingsError>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let tags_input = cx.new(|cx| TextInput::new("用逗号分隔，例如：猫猫, 反应", cx));
         let mut view = Self {
             database: None,
+            waifu_sensor: None,
             storage_root: None,
             inbox_id: None,
             page: Page::All,
             memes: Vec::new(),
             pack_names: HashMap::new(),
+            tags: Vec::new(),
             draft_contents: Vec::new(),
             name_input: cx.new(|cx| TextInput::new("可选，例如：震惊", cx)),
             description_input: cx.new(|cx| TextInput::new("可选，补充使用场景", cx)),
-            tags_input: cx.new(|cx| TextInput::new("用逗号分隔，例如：猫猫, 反应", cx)),
+            tags_input: tags_input.clone(),
             text_content_input: cx.new(|cx| TextInput::new("输入一段 Meme 文字", cx)),
             notice: None,
             opening_storage: false,
+            analyzing_images: false,
+            detecting_characters: false,
         };
+
+        cx.subscribe(&tags_input, |_, _, _: &TextChanged, cx| cx.notify())
+            .detach();
 
         match saved_storage {
             Ok(Some(path)) => view.activate_storage(path, false, cx),
@@ -290,10 +338,12 @@ impl MemelithView {
             Ok(opened) => {
                 let canonical_root = opened.database.storage_root().to_path_buf();
                 self.database = Some(opened.database);
+                self.waifu_sensor = None;
                 self.storage_root = Some(canonical_root.clone());
                 self.inbox_id = Some(opened.inbox_id);
                 self.memes = opened.memes;
                 self.pack_names = opened.pack_names;
+                self.tags = opened.tags;
                 self.page = Page::All;
                 if persist {
                     self.notice = match settings::save_storage_root(&canonical_root) {
@@ -313,6 +363,11 @@ impl MemelithView {
     }
 
     fn choose_storage(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.analyzing_images || self.detecting_characters {
+            self.notice = Some(Notice::Info("图片处理完成后才能更换存储位置".to_owned()));
+            cx.notify();
+            return;
+        }
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -344,6 +399,11 @@ impl MemelithView {
     }
 
     fn choose_images(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.analyzing_images || self.detecting_characters {
+            self.notice = Some(Notice::Info("正在处理草稿图片".to_owned()));
+            cx.notify();
+            return;
+        }
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -352,10 +412,65 @@ impl MemelithView {
         });
         cx.spawn(async move |this, cx| match receiver.await {
             Ok(Ok(Some(paths))) => {
+                let database = match this.update(cx, |view, cx| {
+                    let database = view.database.take();
+                    if database.is_some() {
+                        view.analyzing_images = true;
+                        view.notice = Some(Notice::Info(format!(
+                            "正在计算 {} 张图片的 CLIP 特征并查重…",
+                            paths.len()
+                        )));
+                    } else {
+                        view.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
+                    }
+                    cx.notify();
+                    database
+                }) {
+                    Ok(Some(database)) => database,
+                    Ok(None) | Err(_) => return,
+                };
+
+                let batch = cx
+                    .background_executor()
+                    .spawn(async move { analyze_selected_images(database, paths) })
+                    .await;
+
                 let _ = this.update(cx, |view, cx| {
-                    view.draft_contents
-                        .extend(paths.into_iter().map(DraftContent::Image));
-                    view.notice = None;
+                    view.database = Some(batch.database);
+                    let mut duplicate_count = 0;
+                    let mut errors = Vec::new();
+                    for ImageAnalysisResult { path, result } in batch.results {
+                        match result {
+                            Ok(similar_images) => {
+                                if !similar_images.is_empty() {
+                                    duplicate_count += 1;
+                                }
+                                view.draft_contents.push(DraftContent::Image {
+                                    path,
+                                    similar_images,
+                                });
+                            }
+                            Err(error) => errors.push(format!(
+                                "{}：{error}",
+                                path.file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| path.display().to_string())
+                            )),
+                        }
+                    }
+                    view.analyzing_images = false;
+                    view.notice = if !errors.is_empty() {
+                        Some(Notice::Error(format!(
+                            "部分图片分析失败：{}",
+                            errors.join("；")
+                        )))
+                    } else if duplicate_count > 0 {
+                        Some(Notice::Warning(format!(
+                            "发现 {duplicate_count} 张疑似重复图片，已在草稿中标记"
+                        )))
+                    } else {
+                        None
+                    };
                     cx.notify();
                 });
             }
@@ -376,6 +491,120 @@ impl MemelithView {
         .detach();
     }
 
+    fn detect_characters(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.analyzing_images || self.detecting_characters {
+            self.notice = Some(Notice::Info("正在处理草稿图片".to_owned()));
+            cx.notify();
+            return;
+        }
+        let image_paths = self
+            .draft_contents
+            .iter()
+            .filter_map(|content| match content {
+                DraftContent::Image { path, .. } => Some(path.clone()),
+                DraftContent::Text(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if image_paths.is_empty() {
+            self.notice = Some(Notice::Error("请先添加需要识别的图片".to_owned()));
+            cx.notify();
+            return;
+        }
+        let Some(storage_root) = self.storage_root.clone() else {
+            self.notice = Some(Notice::Error("存储位置尚未准备好".to_owned()));
+            cx.notify();
+            return;
+        };
+
+        let sensor = self.waifu_sensor.take();
+        self.detecting_characters = true;
+        self.notice = Some(Notice::Info(format!(
+            "正在通过 Waifu Sensor 识别 {} 张图片…",
+            image_paths.len()
+        )));
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { detect_draft_characters(sensor, storage_root, image_paths) })
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                view.detecting_characters = false;
+                match result {
+                    Ok(batch) => view.apply_character_detection(batch, cx),
+                    Err(error) => {
+                        view.notice =
+                            Some(Notice::Error(format!("Waifu Sensor 识别失败：{error}")));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn apply_character_detection(
+        &mut self,
+        batch: CharacterDetectionBatch,
+        cx: &mut Context<Self>,
+    ) {
+        self.waifu_sensor = Some(batch.sensor);
+        let mut characters = Vec::new();
+        let mut seen = HashSet::new();
+        let mut errors = Vec::new();
+        for CharacterDetectionResult { path, result } in batch.results {
+            match result {
+                Ok(Some(character)) => {
+                    if seen.insert(character.name.to_ascii_lowercase()) {
+                        characters.push(character.name);
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => errors.push(format!(
+                    "{}：{error}",
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.display().to_string())
+                )),
+            }
+        }
+
+        let current_tags = self.tags_input.read(cx).text();
+        let (merged_tags, added_characters) = merge_tags(&current_tags, &characters);
+        if !added_characters.is_empty() {
+            self.tags_input
+                .update(cx, |input, cx| input.set_text(merged_tags, cx));
+        }
+
+        self.notice = if characters.is_empty() {
+            if errors.is_empty() {
+                Some(Notice::Info("Waifu Sensor 没有返回角色候选".to_owned()))
+            } else {
+                Some(Notice::Error(format!(
+                    "角色识别失败：{}",
+                    errors.join("；")
+                )))
+            }
+        } else if !errors.is_empty() {
+            Some(Notice::Warning(format!(
+                "已识别角色：{}；部分图片处理失败：{}",
+                characters.join("、"),
+                errors.join("；")
+            )))
+        } else if added_characters.is_empty() {
+            Some(Notice::Info(format!(
+                "识别到角色：{}，对应标签已存在",
+                characters.join("、")
+            )))
+        } else {
+            Some(Notice::Success(format!(
+                "已将角色加入 Tag：{}",
+                added_characters.join("、")
+            )))
+        };
+    }
+
     fn add_text_content(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.text_content_input.read(cx).text();
         if text.trim().is_empty() {
@@ -392,6 +621,11 @@ impl MemelithView {
     }
 
     fn remove_draft_content(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.detecting_characters {
+            self.notice = Some(Notice::Info("角色识别完成后才能修改草稿内容".to_owned()));
+            cx.notify();
+            return;
+        }
         if index >= self.draft_contents.len() {
             self.notice = Some(Notice::Error("要移除的内容已经不存在".to_owned()));
         } else {
@@ -402,6 +636,11 @@ impl MemelithView {
     }
 
     fn save_meme(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.analyzing_images || self.detecting_characters {
+            self.notice = Some(Notice::Info("图片处理完成后才能保存 Meme".to_owned()));
+            cx.notify();
+            return;
+        }
         if self.draft_contents.is_empty() {
             self.notice = Some(Notice::Error("请至少添加一张图片或一段文字".to_owned()));
             cx.notify();
@@ -419,7 +658,7 @@ impl MemelithView {
             .draft_contents
             .iter()
             .map(|content| match content {
-                DraftContent::Image(path) => NewMemeContent::Image {
+                DraftContent::Image { path, .. } => NewMemeContent::Image {
                     source_path: path.clone(),
                 },
                 DraftContent::Text(text) => NewMemeContent::Text { text: text.clone() },
@@ -506,13 +745,16 @@ impl MemelithView {
         })?;
         let packs = database.list_meme_packs()?;
         let memes = database.list_all_memes()?;
+        let tags = database.list_tags()?;
         self.pack_names = packs.into_iter().map(|pack| (pack.id, pack.name)).collect();
         self.memes = memes;
+        self.tags = tags;
         Ok(())
     }
 
     fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
         if page == Page::All
+            && !self.analyzing_images
             && let Err(error) = self.refresh_library()
         {
             self.notice = Some(Notice::Error(format!("无法刷新 Meme：{error}")));
@@ -696,6 +938,21 @@ impl MemelithView {
     }
 
     fn render_add_page(&self, cx: &mut Context<Self>) -> AnyElement {
+        let image_processing = self.analyzing_images || self.detecting_characters;
+        let has_images = self
+            .draft_contents
+            .iter()
+            .any(|content| matches!(content, DraftContent::Image { .. }));
+        let choose_images_label = if self.analyzing_images {
+            "正在分析…"
+        } else {
+            "选择图片"
+        };
+        let detect_characters_label = if self.detecting_characters {
+            "正在识别…"
+        } else {
+            "识别角色"
+        };
         let mut content_group = glass_group().flex().flex_col().child(
             group_row()
                 .child(
@@ -706,9 +963,30 @@ impl MemelithView {
                         .child("至少添加一张图片或一段文字"),
                 )
                 .child(
-                    glass_pill("choose-images")
-                        .on_click(cx.listener(Self::choose_images))
-                        .child("选择图片"),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            glass_pill("detect-characters")
+                                .when(image_processing || !has_images, |button| {
+                                    button.opacity(0.45).cursor_default()
+                                })
+                                .when(!image_processing && has_images, |button| {
+                                    button.on_click(cx.listener(Self::detect_characters))
+                                })
+                                .child(detect_characters_label),
+                        )
+                        .child(
+                            glass_pill("choose-images")
+                                .when(image_processing, |button| {
+                                    button.opacity(0.45).cursor_default()
+                                })
+                                .when(!image_processing, |button| {
+                                    button.on_click(cx.listener(Self::choose_images))
+                                })
+                                .child(choose_images_label),
+                        ),
                 ),
         );
         content_group = content_group.child(hairline()).child(
@@ -755,18 +1033,94 @@ impl MemelithView {
                                 .child(hairline())
                                 .child(field_row("简介", self.description_input.clone()))
                                 .child(hairline())
-                                .child(field_row("Tag", self.tags_input.clone())),
+                                .child(self.render_tag_field(cx)),
                         ),
                     )
                     .child(
                         div().flex().justify_end().child(
                             primary_pill("save-meme")
-                                .on_click(cx.listener(Self::save_meme))
-                                .child("保存到 Inbox"),
+                                .when(image_processing, |button| {
+                                    button.opacity(0.45).cursor_default()
+                                })
+                                .when(!image_processing, |button| {
+                                    button.on_click(cx.listener(Self::save_meme))
+                                })
+                                .child(if self.analyzing_images {
+                                    "正在分析图片…"
+                                } else if self.detecting_characters {
+                                    "正在识别角色…"
+                                } else {
+                                    "保存到 Inbox"
+                                }),
                         ),
                     ),
             )
             .into_any_element()
+    }
+
+    fn render_tag_field(&self, cx: &mut Context<Self>) -> AnyElement {
+        let input_text = self.tags_input.read(cx).text();
+        let suggestions = tag_suggestions(&input_text, &self.tags);
+        let mut input_column = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(self.tags_input.clone());
+
+        if !suggestions.is_empty() {
+            let mut suggestion_list = div()
+                .w_full()
+                .rounded(px(8.))
+                .overflow_hidden()
+                .border_1()
+                .border_color(rgba(EDGE_DARK))
+                .bg(rgb(0xffffff))
+                .shadow(control_shadow());
+            for (index, tag) in suggestions.into_iter().enumerate() {
+                let tag_name = tag.name.clone();
+                suggestion_list = suggestion_list.child(
+                    div()
+                        .id(("tag-suggestion", index))
+                        .h(px(30.))
+                        .px_3()
+                        .flex()
+                        .items_center()
+                        .text_sm()
+                        .cursor_pointer()
+                        .hover(|style| style.bg(rgba(0x007aff12)))
+                        .when(index > 0, |row| row.border_t_1().border_color(rgba(SEP)))
+                        .on_click(cx.listener(move |view, _, window, cx| {
+                            view.complete_tag(&tag_name, window, cx)
+                        }))
+                        .child(tag.name.clone()),
+                );
+            }
+            input_column = input_column.child(suggestion_list);
+        }
+
+        group_row()
+            .items_start()
+            .child(
+                div()
+                    .w(px(64.))
+                    .flex_none()
+                    .pt(px(5.))
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("Tag"),
+            )
+            .child(input_column)
+            .into_any_element()
+    }
+
+    fn complete_tag(&mut self, tag_name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.tags_input.read(cx).text();
+        let completed = complete_tag_input(&input, tag_name);
+        self.tags_input
+            .update(cx, |input, cx| input.set_text(completed, cx));
+        window.focus(&self.tags_input.focus_handle(cx));
     }
 
     fn render_draft_content(
@@ -776,27 +1130,57 @@ impl MemelithView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let preview = match content {
-            DraftContent::Image(path) => div()
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(
+            DraftContent::Image {
+                path,
+                similar_images,
+            } => {
+                let mut image_preview = div().flex().flex_col().gap_1().child(
                     div()
-                        .size(px(44.))
-                        .flex_none()
-                        .rounded(px(10.))
-                        .overflow_hidden()
-                        .bg(rgba(0x3c3c4314))
-                        .child(img(path.clone()).size_full().object_fit(ObjectFit::Cover)),
-                )
-                .child(
-                    div().flex_1().text_sm().truncate().child(
-                        path.file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| path.display().to_string()),
-                    ),
-                )
-                .into_any_element(),
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .size(px(44.))
+                                .flex_none()
+                                .rounded(px(10.))
+                                .overflow_hidden()
+                                .bg(rgba(0x3c3c4314))
+                                .child(img(path.clone()).size_full().object_fit(ObjectFit::Cover)),
+                        )
+                        .child(
+                            div().flex_1().text_sm().truncate().child(
+                                path.file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| path.display().to_string()),
+                            ),
+                        ),
+                );
+                if let Some(closest) = similar_images.first() {
+                    let similarity =
+                        ((1.0 - closest.cosine_distance).clamp(0.0, 1.0) * 100.0) as f64;
+                    let existing_name = closest.meme_name.as_deref().unwrap_or("未命名 Meme");
+                    let additional = similar_images.len().saturating_sub(1);
+                    let message = if additional == 0 {
+                        format!("疑似与「{existing_name}」重复 · 相似度 {similarity:.1}%")
+                    } else {
+                        format!(
+                            "疑似与「{existing_name}」重复 · 相似度 {similarity:.1}% · 另有 {additional} 项"
+                        )
+                    };
+                    image_preview = image_preview.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_xs()
+                            .text_color(rgb(WARNING))
+                            .child(div().size(px(6.)).rounded_full().bg(rgb(WARNING)))
+                            .child(message),
+                    );
+                }
+                image_preview.into_any_element()
+            }
             DraftContent::Text(text) => div()
                 .flex()
                 .items_center()
@@ -822,9 +1206,14 @@ impl MemelithView {
             .child(div().flex_1().min_w_0().child(preview))
             .child(
                 icon_button(("remove-draft", index))
-                    .on_click(
-                        cx.listener(move |view, _, _, cx| view.remove_draft_content(index, cx)),
-                    )
+                    .when(self.detecting_characters, |button| {
+                        button.opacity(0.45).cursor_default()
+                    })
+                    .when(!self.detecting_characters, |button| {
+                        button.on_click(
+                            cx.listener(move |view, _, _, cx| view.remove_draft_content(index, cx)),
+                        )
+                    })
                     .child("✕"),
             )
             .into_any_element()
@@ -887,9 +1276,8 @@ impl MemelithView {
             .contents
             .iter()
             .find_map(|content| match content {
-                MemeContent::Image(image) => self.database.as_ref().and_then(|database| {
-                    database
-                        .resolve_media_path(&image.relative_path)
+                MemeContent::Image(image) => self.storage_root.as_ref().and_then(|storage_root| {
+                    MemeDatabase::resolve_media_path_from_root(storage_root, &image.relative_path)
                         .ok()
                         .map(|path| {
                             div()
@@ -1030,7 +1418,16 @@ impl MemelithView {
                                 )
                                 .child(
                                     glass_pill("change-storage")
-                                        .on_click(cx.listener(Self::choose_storage))
+                                        .when(
+                                            self.analyzing_images || self.detecting_characters,
+                                            |button| button.opacity(0.45).cursor_default(),
+                                        )
+                                        .when(
+                                            !self.analyzing_images && !self.detecting_characters,
+                                            |button| {
+                                                button.on_click(cx.listener(Self::choose_storage))
+                                            },
+                                        )
                                         .child("更换位置"),
                                 ),
                         ),
@@ -1042,7 +1439,7 @@ impl MemelithView {
 
 impl Render for MemelithView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.database.is_none() {
+        if self.storage_root.is_none() {
             return self.render_onboarding(cx);
         }
 
@@ -1074,6 +1471,64 @@ impl Render for MemelithView {
     }
 }
 
+fn analyze_selected_images(mut database: MemeDatabase, paths: Vec<PathBuf>) -> ImageAnalysisBatch {
+    let results = paths
+        .into_iter()
+        .map(|path| {
+            let result = database
+                .find_similar_images(&path, DUPLICATE_IMAGE_MAX_COSINE_DISTANCE)
+                .map_err(|error| error.to_string());
+            ImageAnalysisResult { path, result }
+        })
+        .collect();
+    ImageAnalysisBatch { database, results }
+}
+
+fn detect_draft_characters(
+    sensor: Option<WaifuSensor>,
+    storage_root: PathBuf,
+    paths: Vec<PathBuf>,
+) -> Result<CharacterDetectionBatch, String> {
+    let mut sensor = match sensor {
+        Some(sensor) => sensor,
+        None => open_waifu_sensor(&storage_root).map_err(|error| error.to_string())?,
+    };
+    let top_one = NonZeroUsize::new(1).expect("one must be non-zero");
+    let results = paths
+        .into_iter()
+        .map(|path| {
+            let result = waifu_sensor::image::open(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|image| {
+                    sensor
+                        .predict(&image, top_one)
+                        .map_err(|error| error.to_string())
+                })
+                .map(|matches| matches.into_iter().next());
+            CharacterDetectionResult { path, result }
+        })
+        .collect();
+    Ok(CharacterDetectionBatch { sensor, results })
+}
+
+fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
+    let bundle = WaifuBuiltinAssets::bundle()?;
+    let model_manifest = WaifuBuiltinAssets::model_manifest()?;
+    let model_path = WaifuBuiltinAssets::model_path()?;
+    WaifuModelManager::verify(&model_manifest, &model_path)?;
+    let classes = WaifuBuiltinAssets::model_classes()?;
+    let tagger = MlDanbooruTagger::load_with_classes(
+        model_path,
+        &classes,
+        bundle.feature_schema.clone(),
+        WaifuExecutionPolicy::Auto,
+    )?;
+    let connection = waifu_sensor::rusqlite::Connection::open(
+        storage_root.join(WAIFU_SENSOR_DATABASE_FILENAME),
+    )?;
+    WaifuSensor::open(connection, &bundle, tagger).map(|(sensor, _)| sensor)
+}
+
 fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
     let model = ClipModel::load_builtin(
         BuiltinModel::ChineseClipVitBasePatch16,
@@ -1095,11 +1550,13 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
     };
     let packs = database.list_meme_packs()?;
     let memes = database.list_all_memes()?;
+    let tags = database.list_tags()?;
     Ok(OpenedLibrary {
         database,
         inbox_id,
         memes,
         pack_names: packs.into_iter().map(|pack| (pack.id, pack.name)).collect(),
+        tags,
     })
 }
 
@@ -1119,7 +1576,9 @@ fn field_row(label: impl Into<SharedString>, input: Entity<TextInput>) -> AnyEle
 
 fn render_notice(notice: &Notice) -> AnyElement {
     let (dot, message) = match notice {
+        Notice::Info(message) => (ACCENT, message),
         Notice::Success(message) => (SUCCESS, message),
+        Notice::Warning(message) => (WARNING, message),
         Notice::Error(message) => (DANGER, message),
     };
     div()
@@ -1151,6 +1610,81 @@ fn parse_tags(value: &str) -> Vec<String> {
         .filter_map(optional_input_text)
         .filter(|tag| seen.insert(tag.to_ascii_lowercase()))
         .collect()
+}
+
+fn merge_tags(value: &str, additions: &[String]) -> (String, Vec<String>) {
+    let mut tags = parse_tags(value);
+    let mut seen = tags
+        .iter()
+        .map(|tag| tag.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut added = Vec::new();
+    for addition in additions {
+        if seen.insert(addition.to_ascii_lowercase()) {
+            tags.push(addition.clone());
+            added.push(addition.clone());
+        }
+    }
+    let merged = if tags.is_empty() {
+        String::new()
+    } else {
+        format!("{}, ", tags.join(", "))
+    };
+    (merged, added)
+}
+
+fn tag_suggestions<'a>(value: &str, tags: &'a [Tag]) -> Vec<&'a Tag> {
+    let (fragment_start, query) = current_tag_fragment(value);
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let selected = parse_tags(&value[..fragment_start])
+        .into_iter()
+        .map(|tag| tag.to_lowercase())
+        .collect::<HashSet<_>>();
+    let query = query.to_lowercase();
+    let mut matches = tags
+        .iter()
+        .filter_map(|tag| {
+            let normalized_name = tag.name.to_lowercase();
+            if selected.contains(&normalized_name) {
+                return None;
+            }
+            normalized_name.find(&query).map(|position| (position, tag))
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|(left_position, left), (right_position, right)| {
+        left_position
+            .cmp(right_position)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    matches
+        .into_iter()
+        .take(MAX_TAG_SUGGESTIONS)
+        .map(|(_, tag)| tag)
+        .collect()
+}
+
+fn complete_tag_input(value: &str, tag_name: &str) -> String {
+    let (fragment_start, _) = current_tag_fragment(value);
+    let prefix = value[..fragment_start].trim_end();
+    if prefix.is_empty() {
+        format!("{tag_name}, ")
+    } else {
+        format!("{prefix} {tag_name}, ")
+    }
+}
+
+fn current_tag_fragment(value: &str) -> (usize, &str) {
+    let fragment_start = value
+        .char_indices()
+        .rev()
+        .find(|(_, character)| matches!(character, ',' | '，'))
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(0);
+    (fragment_start, value[fragment_start..].trim())
 }
 
 fn main() {

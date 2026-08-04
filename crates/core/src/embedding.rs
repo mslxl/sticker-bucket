@@ -5,7 +5,7 @@ use image::DynamicImage;
 pub type EmbeddingProviderError = Box<dyn StdError + Send + Sync + 'static>;
 
 /// Supplies embeddings in one stable vector space for a Memelith database.
-pub trait EmbeddingProvider {
+pub trait EmbeddingProvider: Send {
     fn model_id(&self) -> &str;
     fn dimension(&self) -> usize;
     fn embed_text(&mut self, text: &str) -> std::result::Result<Vec<f32>, EmbeddingProviderError>;

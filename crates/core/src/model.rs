@@ -45,6 +45,15 @@ pub struct MemeImage {
     pub format: ImageFormat,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimilarMemeImage {
+    pub content_id: Uuid,
+    pub meme_id: Uuid,
+    pub meme_name: Option<String>,
+    pub relative_path: PathBuf,
+    pub cosine_distance: f32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemeText {
     pub id: Uuid,

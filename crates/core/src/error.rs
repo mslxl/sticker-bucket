@@ -50,6 +50,9 @@ pub enum Error {
     #[error("unsupported image format at {0}; expected PNG, JPEG, WebP, or GIF")]
     UnsupportedImageFormat(PathBuf),
 
+    #[error("cosine distance threshold must be finite and between 0 and 2; received {0}")]
+    InvalidCosineDistanceThreshold(f32),
+
     #[error("embedding for {field} has dimension {actual}; expected {expected}")]
     InvalidEmbeddingDimension {
         field: &'static str,
