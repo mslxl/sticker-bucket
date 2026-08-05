@@ -5,12 +5,14 @@ mod embedding;
 mod error;
 mod model;
 
-pub use database::MemeDatabase;
+pub use database::{COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE, MemeDatabase};
 pub use embedding::{EmbeddingProvider, EmbeddingProviderError};
 pub use error::{Error, Result};
 pub use model::{
-    EffectiveTag, ImageFormat, Meme, MemeContent, MemeImage, MemePack, MemeText, NewMeme,
-    NewMemeContent, NewMemePack, NewTag, SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
+    CollectorContent, CollectorDuplicate, CollectorDuplicateSource, CollectorDuplicateTarget,
+    CollectorItem, EffectiveTag, ImageFormat, Meme, MemeContent, MemeImage, MemePack, MemeText,
+    NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag, SimilarMemeImage, Tag,
+    UpdateMemeMetadata, UpdateMemePack,
 };
 
 pub const APPLICATION_NAME: &str = "Memelith";

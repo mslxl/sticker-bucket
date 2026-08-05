@@ -11,6 +11,7 @@ path = "src/lib.rs"
 image = { version = "0.25.9", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 memelith-clip.workspace = true
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+sha2 = "0.10.9"
 thiserror = "2.0.17"
 uuid = { version = "1.19.0", features = ["v4"] }
 

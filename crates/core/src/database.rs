@@ -1,25 +1,30 @@
 use std::{
     collections::HashSet,
     fs::{self, File, OpenOptions},
-    io,
+    io::{self, Read},
     path::{Component, Path, PathBuf},
     time::Duration,
 };
 
 use image::{DynamicImage, ImageFormat as DecodedImageFormat, ImageReader};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
-    EffectiveTag, EmbeddingProvider, Error, ImageFormat, Meme, MemeContent, MemeImage, MemePack,
-    MemeText, NewMeme, NewMemeContent, NewMemePack, NewTag, Result, SimilarMemeImage, Tag,
-    UpdateMemeMetadata, UpdateMemePack,
+    CollectorContent, CollectorDuplicate, CollectorDuplicateSource, CollectorDuplicateTarget,
+    CollectorItem, EffectiveTag, EmbeddingProvider, Error, ImageFormat, Meme, MemeContent,
+    MemeImage, MemePack, MemeText, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack,
+    NewTag, Result, SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
 };
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
+const CONTENT_HASH_BYTES: usize = 32;
 const DATABASE_FILENAME: &str = "memelith.sqlite3";
 const MEDIA_DIRECTORY: &str = "media/images";
 const STAGING_DIRECTORY: &str = ".staging";
+
+pub const COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE: f32 = 0.05;
 
 pub struct MemeDatabase {
     storage_root: PathBuf,
@@ -67,7 +72,12 @@ impl MemeDatabase {
         let database_path = storage_root.join(DATABASE_FILENAME);
         let mut connection = Connection::open(&database_path)?;
         configure_connection(&connection)?;
-        migrate_database(&mut connection, model_id, embedding_dimension)?;
+        migrate_database(
+            &mut connection,
+            &storage_root,
+            model_id,
+            embedding_dimension,
+        )?;
 
         let database = Self {
             storage_root,
@@ -152,6 +162,203 @@ impl MemeDatabase {
         }
         matches.sort_by(|left, right| left.cosine_distance.total_cmp(&right.cosine_distance));
         Ok(matches)
+    }
+
+    pub fn collect_image(&mut self, source_path: impl AsRef<Path>) -> Result<CollectorItem> {
+        let content = self.prepare_content(NewMemeContent::Image {
+            source_path: source_path.as_ref().to_path_buf(),
+        })?;
+        self.collect_prepared_content(content)
+    }
+
+    pub fn collect_text(&mut self, text: String) -> Result<CollectorItem> {
+        let content = self.prepare_content(NewMemeContent::Text { text })?;
+        self.collect_prepared_content(content)
+    }
+
+    pub fn get_collector_item(&self, id: Uuid) -> Result<CollectorItem> {
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
+                        duplicate_kind, duplicate_target_source, duplicate_target_id,
+                        duplicate_distance
+                 FROM collector_items
+                 WHERE id = ?1",
+                [id.to_string()],
+                map_raw_collector_item,
+            )
+            .optional()?
+            .ok_or(Error::CollectorItemNotFound(id))?;
+        raw.into_domain(&self.connection, &self.storage_root)
+    }
+
+    pub fn list_collector_items(&self) -> Result<Vec<CollectorItem>> {
+        let rows = {
+            let mut statement = self.connection.prepare(
+                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
+                        duplicate_kind, duplicate_target_source, duplicate_target_id,
+                        duplicate_distance
+                 FROM collector_items
+                 ORDER BY rowid DESC",
+            )?;
+            statement
+                .query_map([], map_raw_collector_item)?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        rows.into_iter()
+            .map(|row| row.into_domain(&self.connection, &self.storage_root))
+            .collect()
+    }
+
+    pub fn dismiss_collector_similarity(&mut self, id: Uuid) -> Result<CollectorItem> {
+        let duplicate_kind = self
+            .connection
+            .query_row(
+                "SELECT duplicate_kind FROM collector_items WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .ok_or(Error::CollectorItemNotFound(id))?;
+        if duplicate_kind.as_deref() != Some("similarity") {
+            return Err(Error::CollectorSimilarityNotDismissible(id));
+        }
+        self.connection.execute(
+            "UPDATE collector_items
+             SET duplicate_kind = NULL, duplicate_target_source = NULL,
+                 duplicate_target_id = NULL, duplicate_distance = NULL
+             WHERE id = ?1",
+            [id.to_string()],
+        )?;
+        self.get_collector_item(id)
+    }
+
+    pub fn delete_collector_item(&mut self, id: Uuid) -> Result<()> {
+        let item = self.get_collector_item(id)?;
+        let media = match item.content {
+            CollectorContent::Image { relative_path, .. } => {
+                Some(resolve_media_path(&self.storage_root, &relative_path)?)
+            }
+            CollectorContent::Text { .. } => None,
+        };
+        let transaction = self.connection.transaction()?;
+        let deleted = transaction.execute(
+            "DELETE FROM collector_items WHERE id = ?1",
+            [id.to_string()],
+        )?;
+        if deleted != 1 {
+            return Err(Error::CollectorItemNotFound(id));
+        }
+        transaction.commit()?;
+        if let Some(media) = media {
+            remove_managed_files(&[media])?;
+        }
+        Ok(())
+    }
+
+    pub fn promote_collector_items(
+        &mut self,
+        meme_pack_id: Uuid,
+        item_ids: Vec<Uuid>,
+        input: NewMemeFromCollector,
+    ) -> Result<Meme> {
+        if item_ids.is_empty() {
+            return Err(Error::EmptyCollectorSelection);
+        }
+        self.ensure_meme_pack(meme_pack_id)?;
+        let mut unique_ids = HashSet::with_capacity(item_ids.len());
+        for id in &item_ids {
+            if !unique_ids.insert(*id) {
+                return Err(Error::DuplicateCollectorSelection(*id));
+            }
+        }
+        let (name, description) = validate_meme_metadata(input.name, input.description)?;
+        let name_embedding = self.embed_optional_text("Meme name", name.as_deref())?;
+        let description_embedding =
+            self.embed_optional_text("Meme description", description.as_deref())?;
+        let meme_id = Uuid::new_v4();
+        let transaction = self.connection.transaction()?;
+        let mut promoted_contents = Vec::with_capacity(item_ids.len());
+
+        for id in &item_ids {
+            let raw = transaction
+                .query_row(
+                    "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
+                            duplicate_kind, duplicate_target_source, duplicate_target_id,
+                            duplicate_distance
+                     FROM collector_items
+                     WHERE id = ?1",
+                    [id.to_string()],
+                    map_raw_collector_item,
+                )
+                .optional()?
+                .ok_or(Error::CollectorItemNotFound(*id))?;
+            let item = raw.into_domain(&transaction, &self.storage_root)?;
+            if item.duplicate.is_some() {
+                return Err(Error::DuplicateCollectorItem(*id));
+            }
+            promoted_contents.push(collector_item_into_meme_content(item));
+        }
+
+        transaction.execute(
+            "INSERT INTO memes(
+                id, meme_pack_id, name, name_embedding, description, description_embedding
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                meme_id.to_string(),
+                meme_pack_id.to_string(),
+                name,
+                name_embedding,
+                description,
+                description_embedding,
+            ],
+        )?;
+        for (position, id) in item_ids.iter().enumerate() {
+            let inserted = transaction.execute(
+                "INSERT INTO meme_contents(
+                    id, meme_id, position, kind, text, relative_path, width, height,
+                    byte_size, image_format, content_hash, embedding
+                 )
+                 SELECT id, ?1, ?2, kind, text, relative_path, width, height,
+                        byte_size, image_format, content_hash, embedding
+                 FROM collector_items
+                 WHERE id = ?3 AND duplicate_kind IS NULL",
+                params![
+                    meme_id.to_string(),
+                    usize_to_i64(position, "Meme content position")?,
+                    id.to_string(),
+                ],
+            )?;
+            if inserted != 1 {
+                return Err(Error::InvalidDatabase(format!(
+                    "Collector item {id} changed while it was being promoted"
+                )));
+            }
+            transaction.execute(
+                "UPDATE collector_items
+                 SET duplicate_target_source = 'meme'
+                 WHERE duplicate_target_source = 'collector' AND duplicate_target_id = ?1",
+                [id.to_string()],
+            )?;
+            let deleted = transaction.execute(
+                "DELETE FROM collector_items WHERE id = ?1",
+                [id.to_string()],
+            )?;
+            if deleted != 1 {
+                return Err(Error::InvalidDatabase(format!(
+                    "Collector item {id} disappeared while it was being promoted"
+                )));
+            }
+        }
+        transaction.commit()?;
+        Ok(Meme {
+            id: meme_id,
+            meme_pack_id,
+            name,
+            description,
+            contents: promoted_contents,
+        })
     }
 
     pub fn create_meme_pack(&mut self, input: NewMemePack) -> Result<MemePack> {
@@ -597,15 +804,155 @@ impl MemeDatabase {
             .collect()
     }
 
+    fn collect_prepared_content(&mut self, content: PreparedContent) -> Result<CollectorItem> {
+        let id = content.id();
+        let mut pending_files = PendingFiles::stage(
+            &self.storage_root.join(STAGING_DIRECTORY),
+            std::slice::from_ref(&content),
+        )?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let duplicate = Self::find_collector_duplicate(
+            &transaction,
+            self.embedding_dimension,
+            content.kind(),
+            content.content_hash(),
+            content.embedding(),
+        )?;
+        insert_collector_content(&transaction, &content, duplicate.as_ref())?;
+        pending_files.promote()?;
+        transaction.commit()?;
+        pending_files.disarm();
+        self.get_collector_item(id)
+    }
+
+    fn find_collector_duplicate(
+        connection: &Connection,
+        embedding_dimension: usize,
+        kind: &'static str,
+        content_hash: &[u8],
+        embedding: &[u8],
+    ) -> Result<Option<DetectedDuplicate>> {
+        if let Some(target) = Self::find_hash_duplicate(connection, kind, content_hash)? {
+            return Ok(Some(DetectedDuplicate::Hash { target }));
+        }
+
+        let mut closest: Option<(DuplicateReference, f32)> = None;
+        for candidate in Self::duplicate_candidates(connection, kind)? {
+            let distance = cosine_distance_between_encoded_embeddings(
+                embedding,
+                &candidate.embedding,
+                embedding_dimension,
+            )?;
+            if distance > COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE {
+                continue;
+            }
+            if closest
+                .as_ref()
+                .is_none_or(|(_, closest_distance)| distance < *closest_distance)
+            {
+                closest = Some((candidate.target, distance));
+            }
+        }
+        Ok(
+            closest.map(|(target, cosine_distance)| DetectedDuplicate::Similarity {
+                target,
+                cosine_distance,
+            }),
+        )
+    }
+
+    fn find_hash_duplicate(
+        connection: &Connection,
+        kind: &'static str,
+        content_hash: &[u8],
+    ) -> Result<Option<DuplicateReference>> {
+        let collector = connection
+            .query_row(
+                "SELECT id FROM collector_items
+                 WHERE kind = ?1 AND content_hash = ?2
+                 ORDER BY rowid DESC LIMIT 1",
+                params![kind, content_hash],
+                |row| {
+                    Ok(DuplicateReference {
+                        source: CollectorDuplicateSource::Collector,
+                        content_id: uuid_from_column(row, 0)?,
+                    })
+                },
+            )
+            .optional()?;
+        if collector.is_some() {
+            return Ok(collector);
+        }
+        connection
+            .query_row(
+                "SELECT id FROM meme_contents
+                 WHERE kind = ?1 AND content_hash = ?2
+                 ORDER BY rowid DESC LIMIT 1",
+                params![kind, content_hash],
+                |row| {
+                    Ok(DuplicateReference {
+                        source: CollectorDuplicateSource::Meme,
+                        content_id: uuid_from_column(row, 0)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Error::from)
+    }
+
+    fn duplicate_candidates(
+        connection: &Connection,
+        kind: &'static str,
+    ) -> Result<Vec<DuplicateCandidate>> {
+        let mut candidates = Vec::new();
+        {
+            let mut statement = connection.prepare(
+                "SELECT id, embedding FROM collector_items
+                 WHERE kind = ?1 ORDER BY rowid DESC",
+            )?;
+            let rows = statement.query_map([kind], |row| {
+                Ok(DuplicateCandidate {
+                    target: DuplicateReference {
+                        source: CollectorDuplicateSource::Collector,
+                        content_id: uuid_from_column(row, 0)?,
+                    },
+                    embedding: row.get(1)?,
+                })
+            })?;
+            candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
+        }
+        {
+            let mut statement = connection.prepare(
+                "SELECT id, embedding FROM meme_contents
+                 WHERE kind = ?1 ORDER BY rowid DESC",
+            )?;
+            let rows = statement.query_map([kind], |row| {
+                Ok(DuplicateCandidate {
+                    target: DuplicateReference {
+                        source: CollectorDuplicateSource::Meme,
+                        content_id: uuid_from_column(row, 0)?,
+                    },
+                    embedding: row.get(1)?,
+                })
+            })?;
+            candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
+        }
+        Ok(candidates)
+    }
+
     fn prepare_content(&mut self, content: NewMemeContent) -> Result<PreparedContent> {
         let id = Uuid::new_v4();
         match content {
             NewMemeContent::Text { text } => {
                 let text = required_text(text, "Meme text")?;
                 let embedding = self.embed_text("Meme text", &text)?;
+                let content_hash = sha256_bytes(text.as_bytes());
                 Ok(PreparedContent::Text {
                     id,
                     text,
+                    content_hash,
                     embedding,
                 })
             }
@@ -625,6 +972,7 @@ impl MemeDatabase {
                     height: analyzed.height,
                     byte_size: analyzed.byte_size,
                     format: analyzed.format,
+                    content_hash: analyzed.content_hash,
                     embedding: analyzed.embedding,
                 })
             }
@@ -632,11 +980,11 @@ impl MemeDatabase {
     }
 
     fn analyze_image_source(&mut self, source_path: PathBuf) -> Result<AnalyzedImageSource> {
-        let (format, decoded) = decode_supported_image(&source_path)?;
-        let metadata = fs::metadata(&source_path)?;
-        if !metadata.is_file() {
+        if !fs::metadata(&source_path)?.is_file() {
             return Err(Error::UnsupportedImageFormat(source_path));
         }
+        let content_hash = sha256_file(&source_path)?;
+        let (format, decoded) = decode_supported_image(&source_path)?;
         let width = decoded.width();
         let height = decoded.height();
         let vector = self
@@ -644,12 +992,17 @@ impl MemeDatabase {
             .embed_image(&decoded)
             .map_err(Error::EmbeddingProvider)?;
         let embedding = encode_embedding("Meme image", vector, self.embedding_dimension)?;
+        if sha256_file(&source_path)? != content_hash {
+            return Err(Error::SourceMediaChanged(source_path));
+        }
+        let byte_size = fs::metadata(&source_path)?.len();
         Ok(AnalyzedImageSource {
             source_path,
             width,
             height,
-            byte_size: metadata.len(),
+            byte_size,
             format,
+            content_hash,
             embedding,
         })
     }
@@ -770,9 +1123,11 @@ impl MemeDatabase {
 
     fn collect_orphaned_media(&self) -> Result<()> {
         let referenced = {
-            let mut statement = self
-                .connection
-                .prepare("SELECT relative_path FROM meme_contents WHERE kind = 'image'")?;
+            let mut statement = self.connection.prepare(
+                "SELECT relative_path FROM meme_contents WHERE kind = 'image'
+                 UNION
+                 SELECT relative_path FROM collector_items WHERE kind = 'image'",
+            )?;
             statement
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<std::result::Result<HashSet<_>, _>>()?
@@ -811,18 +1166,126 @@ fn configure_connection(connection: &Connection) -> Result<()> {
 
 fn migrate_database(
     connection: &mut Connection,
+    storage_root: &Path,
     model_id: &str,
     embedding_dimension: usize,
 ) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     match version {
         0 => create_schema(connection, model_id, embedding_dimension),
+        1 => migrate_v1_to_v2(connection, storage_root, model_id, embedding_dimension),
         SCHEMA_VERSION => validate_database_metadata(connection, model_id, embedding_dimension),
         actual => Err(Error::UnsupportedSchemaVersion {
             expected: SCHEMA_VERSION,
             actual,
         }),
     }
+}
+
+struct MigratingContent {
+    id: String,
+    meme_id: String,
+    position: i64,
+    kind: String,
+    text: Option<String>,
+    relative_path: Option<String>,
+    width: Option<i64>,
+    height: Option<i64>,
+    byte_size: Option<i64>,
+    image_format: Option<String>,
+    content_hash: Vec<u8>,
+    embedding: Vec<u8>,
+}
+
+fn load_v1_contents_for_migration(
+    connection: &Connection,
+    storage_root: &Path,
+) -> Result<Vec<MigratingContent>> {
+    let rows = {
+        let mut statement = connection.prepare(
+            "SELECT id, meme_id, position, kind, text, relative_path, width, height,
+                    byte_size, image_format, embedding
+             FROM meme_contents
+             ORDER BY rowid",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Vec<u8>>(10)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    rows.into_iter()
+        .map(
+            |(
+                id,
+                meme_id,
+                position,
+                kind,
+                text,
+                relative_path,
+                width,
+                height,
+                byte_size,
+                image_format,
+                embedding,
+            )| {
+                let content_hash = match kind.as_str() {
+                    "text" => {
+                        let text = text.as_ref().ok_or_else(|| {
+                            Error::InvalidDatabase(format!(
+                                "text content {id} has no text during schema migration"
+                            ))
+                        })?;
+                        sha256_bytes(text.as_bytes())
+                    }
+                    "image" => {
+                        let relative_path = relative_path.as_ref().ok_or_else(|| {
+                            Error::InvalidDatabase(format!(
+                                "image content {id} has no path during schema migration"
+                            ))
+                        })?;
+                        let absolute_path =
+                            resolve_media_path(storage_root, Path::new(relative_path))?;
+                        if !absolute_path.is_file() {
+                            return Err(Error::MissingMedia(absolute_path));
+                        }
+                        sha256_file(&absolute_path)?
+                    }
+                    _ => {
+                        return Err(Error::InvalidDatabase(format!(
+                            "content {id} has unknown kind `{kind}` during schema migration"
+                        )));
+                    }
+                };
+                Ok(MigratingContent {
+                    id,
+                    meme_id,
+                    position,
+                    kind,
+                    text,
+                    relative_path,
+                    width,
+                    height,
+                    byte_size,
+                    image_format,
+                    content_hash,
+                    embedding,
+                })
+            },
+        )
+        .collect()
 }
 
 fn create_schema(
@@ -887,6 +1350,7 @@ fn create_schema(
             height INTEGER,
             byte_size INTEGER,
             image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
             embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
             UNIQUE(meme_id, position),
             CHECK(
@@ -898,6 +1362,39 @@ fn create_schema(
             )
         );
         CREATE INDEX meme_contents_meme ON meme_contents(meme_id, position);
+        CREATE INDEX meme_contents_kind_hash ON meme_contents(kind, content_hash);
+        CREATE TABLE collector_items (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
+            text TEXT,
+            relative_path TEXT UNIQUE,
+            width INTEGER,
+            height INTEGER,
+            byte_size INTEGER,
+            image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
+            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
+            duplicate_kind TEXT CHECK(duplicate_kind IN ('hash', 'similarity')),
+            duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
+            duplicate_target_id TEXT,
+            duplicate_distance REAL,
+            CHECK(
+                (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
+                 relative_path IS NULL AND width IS NULL AND height IS NULL AND
+                 byte_size IS NULL AND image_format IS NULL) OR
+                (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
+            ),
+            CHECK(
+                (duplicate_kind IS NULL AND duplicate_target_source IS NULL AND
+                 duplicate_target_id IS NULL AND duplicate_distance IS NULL) OR
+                (duplicate_kind = 'hash' AND duplicate_target_source IS NOT NULL AND
+                 duplicate_target_id IS NOT NULL AND duplicate_distance IS NULL) OR
+                (duplicate_kind = 'similarity' AND duplicate_target_source IS NOT NULL AND
+                 duplicate_target_id IS NOT NULL AND duplicate_distance BETWEEN 0.0 AND 2.0)
+            )
+        );
+        CREATE INDEX collector_items_kind_hash ON collector_items(kind, content_hash);
         CREATE TABLE tags (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL CHECK(trim(name) <> ''),
@@ -931,8 +1428,139 @@ fn create_schema(
     Ok(())
 }
 
+fn migrate_v1_to_v2(
+    connection: &mut Connection,
+    storage_root: &Path,
+    model_id: &str,
+    embedding_dimension: usize,
+) -> Result<()> {
+    let embedding_bytes = embedding_dimension
+        .checked_mul(size_of::<f32>())
+        .ok_or_else(|| Error::InvalidDatabase("embedding byte length exceeds usize".to_owned()))?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let version: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version == SCHEMA_VERSION {
+        validate_database_metadata_version(
+            &transaction,
+            SCHEMA_VERSION,
+            model_id,
+            embedding_dimension,
+        )?;
+        transaction.commit()?;
+        return Ok(());
+    }
+    if version != 1 {
+        return Err(Error::UnsupportedSchemaVersion {
+            expected: SCHEMA_VERSION,
+            actual: version,
+        });
+    }
+    validate_database_metadata_version(&transaction, 1, model_id, embedding_dimension)?;
+    let contents = load_v1_contents_for_migration(&transaction, storage_root)?;
+    transaction.execute_batch(&format!(
+        "ALTER TABLE meme_contents RENAME TO meme_contents_v1;
+         CREATE TABLE meme_contents (
+            id TEXT PRIMARY KEY,
+            meme_id TEXT NOT NULL REFERENCES memes(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL CHECK(position >= 0),
+            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
+            text TEXT,
+            relative_path TEXT UNIQUE,
+            width INTEGER,
+            height INTEGER,
+            byte_size INTEGER,
+            image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
+            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
+            UNIQUE(meme_id, position),
+            CHECK(
+                (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
+                 relative_path IS NULL AND width IS NULL AND height IS NULL AND
+                 byte_size IS NULL AND image_format IS NULL) OR
+                (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
+            )
+         );"
+    ))?;
+    for content in contents {
+        transaction.execute(
+            "INSERT INTO meme_contents(
+                id, meme_id, position, kind, text, relative_path, width, height,
+                byte_size, image_format, content_hash, embedding
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                content.id,
+                content.meme_id,
+                content.position,
+                content.kind,
+                content.text,
+                content.relative_path,
+                content.width,
+                content.height,
+                content.byte_size,
+                content.image_format,
+                content.content_hash,
+                content.embedding,
+            ],
+        )?;
+    }
+    transaction.execute_batch(&format!(
+        "DROP TABLE meme_contents_v1;
+         CREATE INDEX meme_contents_meme ON meme_contents(meme_id, position);
+         CREATE INDEX meme_contents_kind_hash ON meme_contents(kind, content_hash);
+         CREATE TABLE collector_items (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
+            text TEXT,
+            relative_path TEXT UNIQUE,
+            width INTEGER,
+            height INTEGER,
+            byte_size INTEGER,
+            image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
+            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
+            duplicate_kind TEXT CHECK(duplicate_kind IN ('hash', 'similarity')),
+            duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
+            duplicate_target_id TEXT,
+            duplicate_distance REAL,
+            CHECK(
+                (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
+                 relative_path IS NULL AND width IS NULL AND height IS NULL AND
+                 byte_size IS NULL AND image_format IS NULL) OR
+                (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
+            ),
+            CHECK(
+                (duplicate_kind IS NULL AND duplicate_target_source IS NULL AND
+                 duplicate_target_id IS NULL AND duplicate_distance IS NULL) OR
+                (duplicate_kind = 'hash' AND duplicate_target_source IS NOT NULL AND
+                 duplicate_target_id IS NOT NULL AND duplicate_distance IS NULL) OR
+                (duplicate_kind = 'similarity' AND duplicate_target_source IS NOT NULL AND
+                 duplicate_target_id IS NOT NULL AND duplicate_distance BETWEEN 0.0 AND 2.0)
+            )
+         );
+         CREATE INDEX collector_items_kind_hash ON collector_items(kind, content_hash);"
+    ))?;
+    transaction.execute(
+        "UPDATE metadata SET schema_version = ?1 WHERE singleton = 1",
+        [SCHEMA_VERSION],
+    )?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn validate_database_metadata(
     connection: &Connection,
+    model_id: &str,
+    embedding_dimension: usize,
+) -> Result<()> {
+    validate_database_metadata_version(connection, SCHEMA_VERSION, model_id, embedding_dimension)
+}
+
+fn validate_database_metadata_version(
+    connection: &Connection,
+    expected_schema_version: i64,
     model_id: &str,
     embedding_dimension: usize,
 ) -> Result<()> {
@@ -951,9 +1579,9 @@ fn validate_database_metadata(
         )
         .optional()?
         .ok_or_else(|| Error::InvalidDatabase("metadata row is missing".to_owned()))?;
-    if metadata.0 != SCHEMA_VERSION {
+    if metadata.0 != expected_schema_version {
         return Err(Error::UnsupportedSchemaVersion {
-            expected: SCHEMA_VERSION,
+            expected: expected_schema_version,
             actual: metadata.0,
         });
     }
@@ -981,7 +1609,31 @@ struct AnalyzedImageSource {
     height: u32,
     byte_size: u64,
     format: ImageFormat,
+    content_hash: Vec<u8>,
     embedding: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DuplicateReference {
+    source: CollectorDuplicateSource,
+    content_id: Uuid,
+}
+
+#[derive(Debug)]
+struct DuplicateCandidate {
+    target: DuplicateReference,
+    embedding: Vec<u8>,
+}
+
+#[derive(Debug)]
+enum DetectedDuplicate {
+    Hash {
+        target: DuplicateReference,
+    },
+    Similarity {
+        target: DuplicateReference,
+        cosine_distance: f32,
+    },
 }
 
 #[derive(Debug)]
@@ -995,13 +1647,151 @@ enum PreparedContent {
         height: u32,
         byte_size: u64,
         format: ImageFormat,
+        content_hash: Vec<u8>,
         embedding: Vec<u8>,
     },
     Text {
         id: Uuid,
         text: String,
+        content_hash: Vec<u8>,
         embedding: Vec<u8>,
     },
+}
+
+impl PreparedContent {
+    fn id(&self) -> Uuid {
+        match self {
+            Self::Image { id, .. } | Self::Text { id, .. } => *id,
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Image { .. } => "image",
+            Self::Text { .. } => "text",
+        }
+    }
+
+    fn content_hash(&self) -> &[u8] {
+        match self {
+            Self::Image { content_hash, .. } | Self::Text { content_hash, .. } => content_hash,
+        }
+    }
+
+    fn embedding(&self) -> &[u8] {
+        match self {
+            Self::Image { embedding, .. } | Self::Text { embedding, .. } => embedding,
+        }
+    }
+}
+
+fn insert_collector_content(
+    transaction: &Transaction<'_>,
+    content: &PreparedContent,
+    duplicate: Option<&DetectedDuplicate>,
+) -> Result<()> {
+    let duplicate = DuplicateDatabaseValues::from_detected(duplicate);
+    match content {
+        PreparedContent::Text {
+            id,
+            text,
+            content_hash,
+            embedding,
+        } => {
+            transaction.execute(
+                "INSERT INTO collector_items(
+                    id, kind, text, content_hash, embedding, duplicate_kind,
+                    duplicate_target_source, duplicate_target_id, duplicate_distance
+                 ) VALUES (?1, 'text', ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    id.to_string(),
+                    text,
+                    content_hash,
+                    embedding,
+                    duplicate.kind,
+                    duplicate.target_source,
+                    duplicate.target_id,
+                    duplicate.distance,
+                ],
+            )?;
+        }
+        PreparedContent::Image {
+            id,
+            relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+            content_hash,
+            embedding,
+            ..
+        } => {
+            transaction.execute(
+                "INSERT INTO collector_items(
+                    id, kind, relative_path, width, height, byte_size, image_format,
+                    content_hash, embedding, duplicate_kind, duplicate_target_source,
+                    duplicate_target_id, duplicate_distance
+                 ) VALUES (?1, 'image', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    id.to_string(),
+                    path_to_database_string(relative_path)?,
+                    i64::from(*width),
+                    i64::from(*height),
+                    u64_to_i64(*byte_size, "image byte size")?,
+                    format.as_database_str(),
+                    content_hash,
+                    embedding,
+                    duplicate.kind,
+                    duplicate.target_source,
+                    duplicate.target_id,
+                    duplicate.distance,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+struct DuplicateDatabaseValues {
+    kind: Option<&'static str>,
+    target_source: Option<&'static str>,
+    target_id: Option<String>,
+    distance: Option<f64>,
+}
+
+impl DuplicateDatabaseValues {
+    fn from_detected(duplicate: Option<&DetectedDuplicate>) -> Self {
+        match duplicate {
+            None => Self {
+                kind: None,
+                target_source: None,
+                target_id: None,
+                distance: None,
+            },
+            Some(DetectedDuplicate::Hash { target }) => Self {
+                kind: Some("hash"),
+                target_source: Some(duplicate_source_to_database_str(target.source)),
+                target_id: Some(target.content_id.to_string()),
+                distance: None,
+            },
+            Some(DetectedDuplicate::Similarity {
+                target,
+                cosine_distance,
+            }) => Self {
+                kind: Some("similarity"),
+                target_source: Some(duplicate_source_to_database_str(target.source)),
+                target_id: Some(target.content_id.to_string()),
+                distance: Some(f64::from(*cosine_distance)),
+            },
+        }
+    }
+}
+
+fn duplicate_source_to_database_str(source: CollectorDuplicateSource) -> &'static str {
+    match source {
+        CollectorDuplicateSource::Collector => "collector",
+        CollectorDuplicateSource::Meme => "meme",
+    }
 }
 
 fn insert_contents(
@@ -1015,17 +1805,19 @@ fn insert_contents(
             PreparedContent::Text {
                 id,
                 text,
+                content_hash,
                 embedding,
             } => {
                 transaction.execute(
                     "INSERT INTO meme_contents(
-                        id, meme_id, position, kind, text, embedding
-                     ) VALUES (?1, ?2, ?3, 'text', ?4, ?5)",
+                        id, meme_id, position, kind, text, content_hash, embedding
+                     ) VALUES (?1, ?2, ?3, 'text', ?4, ?5, ?6)",
                     params![
                         id.to_string(),
                         meme_id.to_string(),
                         position,
                         text,
+                        content_hash,
                         embedding,
                     ],
                 )?;
@@ -1037,6 +1829,7 @@ fn insert_contents(
                 height,
                 byte_size,
                 format,
+                content_hash,
                 embedding,
                 ..
             } => {
@@ -1044,8 +1837,8 @@ fn insert_contents(
                 transaction.execute(
                     "INSERT INTO meme_contents(
                         id, meme_id, position, kind, relative_path, width, height,
-                        byte_size, image_format, embedding
-                     ) VALUES (?1, ?2, ?3, 'image', ?4, ?5, ?6, ?7, ?8, ?9)",
+                        byte_size, image_format, content_hash, embedding
+                     ) VALUES (?1, ?2, ?3, 'image', ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         id.to_string(),
                         meme_id.to_string(),
@@ -1055,6 +1848,7 @@ fn insert_contents(
                         i64::from(*height),
                         u64_to_i64(*byte_size, "image byte size")?,
                         format.as_database_str(),
+                        content_hash,
                         embedding,
                     ],
                 )?;
@@ -1086,6 +1880,8 @@ impl PendingFiles {
                 id,
                 source_path,
                 final_path,
+                byte_size,
+                content_hash,
                 ..
             } = content
             else {
@@ -1104,6 +1900,10 @@ impl PendingFiles {
                 .open(&staged)?;
             io::copy(&mut source, &mut destination)?;
             destination.sync_all()?;
+            let staged_hash = sha256_file(&staged)?;
+            if staged_hash != *content_hash || fs::metadata(&staged)?.len() != *byte_size {
+                return Err(Error::SourceMediaChanged(source_path.clone()));
+            }
         }
         Ok(pending)
     }
@@ -1140,6 +1940,187 @@ impl Drop for PendingFiles {
             };
             let _ = fs::remove_file(path);
         }
+    }
+}
+
+struct RawCollectorItem {
+    id: Uuid,
+    kind: String,
+    text: Option<String>,
+    relative_path: Option<String>,
+    width: Option<i64>,
+    height: Option<i64>,
+    byte_size: Option<i64>,
+    image_format: Option<String>,
+    duplicate_kind: Option<String>,
+    duplicate_target_source: Option<String>,
+    duplicate_target_id: Option<String>,
+    duplicate_distance: Option<f64>,
+}
+
+fn map_raw_collector_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCollectorItem> {
+    Ok(RawCollectorItem {
+        id: uuid_from_column(row, 0)?,
+        kind: row.get(1)?,
+        text: row.get(2)?,
+        relative_path: row.get(3)?,
+        width: row.get(4)?,
+        height: row.get(5)?,
+        byte_size: row.get(6)?,
+        image_format: row.get(7)?,
+        duplicate_kind: row.get(8)?,
+        duplicate_target_source: row.get(9)?,
+        duplicate_target_id: row.get(10)?,
+        duplicate_distance: row.get(11)?,
+    })
+}
+
+impl RawCollectorItem {
+    fn into_domain(self, connection: &Connection, storage_root: &Path) -> Result<CollectorItem> {
+        let id = self.id;
+        let content = RawContent {
+            id,
+            kind: self.kind,
+            text: self.text,
+            relative_path: self.relative_path,
+            width: self.width,
+            height: self.height,
+            byte_size: self.byte_size,
+            image_format: self.image_format,
+        }
+        .into_domain(storage_root)?;
+        let content = match content {
+            MemeContent::Image(image) => CollectorContent::Image {
+                relative_path: image.relative_path,
+                width: image.width,
+                height: image.height,
+                byte_size: image.byte_size,
+                format: image.format,
+            },
+            MemeContent::Text(text) => CollectorContent::Text { text: text.text },
+        };
+        let duplicate = collector_duplicate_from_raw(
+            connection,
+            id,
+            self.duplicate_kind,
+            self.duplicate_target_source,
+            self.duplicate_target_id,
+            self.duplicate_distance,
+        )?;
+        Ok(CollectorItem {
+            id,
+            content,
+            duplicate,
+        })
+    }
+}
+
+fn collector_item_into_meme_content(item: CollectorItem) -> MemeContent {
+    match item.content {
+        CollectorContent::Image {
+            relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+        } => MemeContent::Image(MemeImage {
+            id: item.id,
+            relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+        }),
+        CollectorContent::Text { text } => MemeContent::Text(MemeText { id: item.id, text }),
+    }
+}
+
+fn collector_duplicate_from_raw(
+    connection: &Connection,
+    item_id: Uuid,
+    kind: Option<String>,
+    target_source: Option<String>,
+    target_id: Option<String>,
+    distance: Option<f64>,
+) -> Result<Option<CollectorDuplicate>> {
+    let Some(kind) = kind else {
+        if target_source.is_some() || target_id.is_some() || distance.is_some() {
+            return Err(Error::InvalidDatabase(format!(
+                "Collector item {item_id} has duplicate details without a duplicate kind"
+            )));
+        }
+        return Ok(None);
+    };
+    let source_raw = target_source.ok_or_else(|| {
+        Error::InvalidDatabase(format!(
+            "Collector item {item_id} has duplicate kind `{kind}` without a target source"
+        ))
+    })?;
+    let source = match source_raw.as_str() {
+        "collector" => CollectorDuplicateSource::Collector,
+        "meme" => CollectorDuplicateSource::Meme,
+        _ => {
+            return Err(Error::InvalidDatabase(format!(
+                "Collector item {item_id} has unknown duplicate target source `{source_raw}`"
+            )));
+        }
+    };
+    let target_id_raw = target_id.ok_or_else(|| {
+        Error::InvalidDatabase(format!(
+            "Collector item {item_id} has duplicate kind `{kind}` without a target ID"
+        ))
+    })?;
+    let content_id = parse_database_uuid(&target_id_raw, "Collector duplicate target")?;
+    let (meme_id, meme_name) = match source {
+        CollectorDuplicateSource::Collector => (None, None),
+        CollectorDuplicateSource::Meme => connection
+            .query_row(
+                "SELECT c.meme_id, m.name
+                 FROM meme_contents c
+                 JOIN memes m ON m.id = c.meme_id
+                 WHERE c.id = ?1",
+                [content_id.to_string()],
+                |row| Ok((uuid_from_column(row, 0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?
+            .map_or((None, None), |(meme_id, meme_name)| {
+                (Some(meme_id), meme_name)
+            }),
+    };
+    let target = CollectorDuplicateTarget {
+        source,
+        content_id,
+        meme_id,
+        meme_name,
+    };
+    match kind.as_str() {
+        "hash" => {
+            if distance.is_some() {
+                return Err(Error::InvalidDatabase(format!(
+                    "Collector item {item_id} has a hash duplicate with a cosine distance"
+                )));
+            }
+            Ok(Some(CollectorDuplicate::Hash { target }))
+        }
+        "similarity" => {
+            let distance = distance.ok_or_else(|| {
+                Error::InvalidDatabase(format!(
+                    "Collector item {item_id} has a similarity duplicate without a distance"
+                ))
+            })?;
+            if !distance.is_finite() || !(0.0..=2.0).contains(&distance) {
+                return Err(Error::InvalidDatabase(format!(
+                    "Collector item {item_id} has invalid cosine distance {distance}"
+                )));
+            }
+            Ok(Some(CollectorDuplicate::Similarity {
+                target,
+                cosine_distance: distance as f32,
+            }))
+        }
+        _ => Err(Error::InvalidDatabase(format!(
+            "Collector item {item_id} has unknown duplicate kind `{kind}`"
+        ))),
     }
 }
 
@@ -1260,6 +2241,24 @@ fn optional_text(value: Option<String>, field: &'static str) -> Result<Option<St
 
 fn normalize_tag_name(name: &str) -> String {
     name.to_ascii_lowercase()
+}
+
+fn sha256_bytes(bytes: &[u8]) -> Vec<u8> {
+    Sha256::digest(bytes).to_vec()
+}
+
+fn sha256_file(path: &Path) -> Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    Ok(hasher.finalize().to_vec())
 }
 
 fn encode_embedding(
@@ -1485,6 +2484,12 @@ fn uuid_from_column(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<
             rusqlite::types::Type::Text,
             Box::new(error),
         )
+    })
+}
+
+fn parse_database_uuid(value: &str, field: &str) -> Result<Uuid> {
+    Uuid::parse_str(value).map_err(|error| {
+        Error::InvalidDatabase(format!("{field} contains invalid UUID `{value}`: {error}"))
     })
 }
 

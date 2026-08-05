@@ -47,8 +47,14 @@ pub enum Error {
     #[error("a Meme must contain at least one image or text block")]
     EmptyMemeContents,
 
+    #[error("at least one Collector item must be selected")]
+    EmptyCollectorSelection,
+
     #[error("unsupported image format at {0}; expected PNG, JPEG, WebP, or GIF")]
     UnsupportedImageFormat(PathBuf),
+
+    #[error("source media changed while it was being imported: {0}")]
+    SourceMediaChanged(PathBuf),
 
     #[error("cosine distance threshold must be finite and between 0 and 2; received {0}")]
     InvalidCosineDistanceThreshold(f32),
@@ -71,6 +77,18 @@ pub enum Error {
 
     #[error("Meme {0} does not exist")]
     MemeNotFound(Uuid),
+
+    #[error("Collector item {0} does not exist")]
+    CollectorItemNotFound(Uuid),
+
+    #[error("Collector item {0} was selected more than once")]
+    DuplicateCollectorSelection(Uuid),
+
+    #[error("Collector item {0} is marked as duplicate and cannot be promoted")]
+    DuplicateCollectorItem(Uuid),
+
+    #[error("Collector item {0} is not a dismissible similarity duplicate")]
+    CollectorSimilarityNotDismissible(Uuid),
 
     #[error("Tag {0} does not exist")]
     TagNotFound(Uuid),

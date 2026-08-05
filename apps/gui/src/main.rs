@@ -8,16 +8,18 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Application, Bounds, BoxShadow, Context, Div, ElementId, Entity, Focusable,
-    FontWeight, ObjectFit, PathPromptOptions, SharedString, Stateful, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, div, hsla, img,
-    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba, size,
+    AnyElement, App, Application, Bounds, BoxShadow, Context, Corner, Div, ElementId, Entity,
+    Focusable, FontWeight, MouseButton, MouseDownEvent, ObjectFit, PathPromptOptions, Pixels,
+    Point, SharedString, Stateful, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowControlArea, WindowOptions, anchored, deferred, div, hsla, img, linear_color_stop,
+    linear_gradient, point, prelude::*, px, rgb, rgba, size,
 };
 use input::{TextChanged, TextInput};
 use memelith_clip::{BuiltinModel, ClipModel, ExecutionPolicy};
 use memelith_core::{
-    APPLICATION_NAME, Meme, MemeContent, MemeDatabase, NewMeme, NewMemeContent, NewMemePack,
-    NewTag, SimilarMemeImage, Tag,
+    APPLICATION_NAME, CollectorContent, CollectorDuplicate, CollectorItem, Meme, MemeContent,
+    MemeDatabase, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag,
+    SimilarMemeImage, Tag,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -183,8 +185,63 @@ fn icon_button(id: impl Into<ElementId>) -> Stateful<Div> {
         .active(|style| style.bg(rgba(0x3c3c4326)))
 }
 
+fn checkbox(id: impl Into<ElementId>, checked: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(16.))
+        .flex_none()
+        .rounded(px(4.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .when(checked, |style| {
+            style
+                .bg(rgb(ACCENT))
+                .text_color(rgb(0xffffff))
+                .text_size(px(11.))
+                .font_weight(FontWeight::BOLD)
+                .child("\u{2713}")
+        })
+        .when(!checked, |style| {
+            style
+                .bg(rgb(0xffffff))
+                .border_1()
+                .border_color(rgba(EDGE_DARK))
+        })
+}
+
+fn context_menu() -> Div {
+    div()
+        .min_w(px(180.))
+        .p(px(5.))
+        .rounded(px(12.))
+        .bg(rgba(GLASS_CARD))
+        .border_1()
+        .border_color(rgba(EDGE_DARK))
+        .shadow(card_shadow())
+        .flex()
+        .flex_col()
+}
+
+fn context_menu_item(id: impl Into<ElementId>, label: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .px_3()
+        .rounded(px(8.))
+        .flex()
+        .items_center()
+        .text_size(px(13.))
+        .text_color(rgb(INK))
+        .cursor_pointer()
+        .hover(|style| style.bg(rgb(ACCENT)).text_color(rgb(0xffffff)))
+        .child(label)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Page {
+    Collector,
     Add,
     All,
     Settings,
@@ -193,6 +250,7 @@ enum Page {
 impl Page {
     const fn label(self) -> &'static str {
         match self {
+            Self::Collector => "Collector",
             Self::Add => "添加",
             Self::All => "全部",
             Self::Settings => "设置",
@@ -201,6 +259,7 @@ impl Page {
 
     const fn icon(self) -> &'static str {
         match self {
+            Self::Collector => "\u{25c8}",
             Self::Add => "＋",
             Self::All => "▦",
             Self::Settings => "⚙\u{fe0e}",
@@ -209,9 +268,10 @@ impl Page {
 
     const fn index(self) -> usize {
         match self {
-            Self::Add => 0,
-            Self::All => 1,
-            Self::Settings => 2,
+            Self::Collector => 0,
+            Self::Add => 1,
+            Self::All => 2,
+            Self::Settings => 3,
         }
     }
 }
@@ -221,8 +281,25 @@ enum DraftContent {
     Image {
         path: PathBuf,
         similar_images: Vec<SimilarMemeImage>,
+        collector_item_id: Option<Uuid>,
     },
-    Text(String),
+    Text {
+        text: String,
+        collector_item_id: Option<Uuid>,
+    },
+}
+
+impl DraftContent {
+    fn collector_item_id(&self) -> Option<Uuid> {
+        match self {
+            Self::Image {
+                collector_item_id, ..
+            }
+            | Self::Text {
+                collector_item_id, ..
+            } => *collector_item_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -241,6 +318,22 @@ struct ImageAnalysisResult {
 struct ImageAnalysisBatch {
     database: MemeDatabase,
     results: Vec<ImageAnalysisResult>,
+}
+
+struct CollectorImportResult {
+    label: String,
+    result: Result<CollectorItem, String>,
+}
+
+struct CollectorImportBatch {
+    database: MemeDatabase,
+    results: Vec<CollectorImportResult>,
+}
+
+#[derive(Clone, Copy)]
+struct CollectorContextMenu {
+    item_id: Uuid,
+    position: Point<Pixels>,
 }
 
 struct CharacterDetectionResult {
@@ -268,6 +361,7 @@ struct OpenedLibrary {
     memes: Vec<Meme>,
     pack_names: HashMap<Uuid, String>,
     tags: Vec<Tag>,
+    collector_items: Vec<CollectorItem>,
 }
 
 struct MemelithView {
@@ -279,15 +373,21 @@ struct MemelithView {
     memes: Vec<Meme>,
     pack_names: HashMap<Uuid, String>,
     tags: Vec<Tag>,
+    collector_items: Vec<CollectorItem>,
+    selected_collector_items: HashSet<Uuid>,
     draft_contents: Vec<DraftContent>,
     name_input: Entity<TextInput>,
     description_input: Entity<TextInput>,
     tags_input: Entity<TextInput>,
     text_content_input: Entity<TextInput>,
+    collector_text_input: Entity<TextInput>,
     notice: Option<Notice>,
     opening_storage: bool,
     analyzing_images: bool,
     detecting_characters: bool,
+    collecting: bool,
+    show_only_collector_duplicates: bool,
+    collector_context_menu: Option<CollectorContextMenu>,
 }
 
 impl MemelithView {
@@ -305,15 +405,21 @@ impl MemelithView {
             memes: Vec::new(),
             pack_names: HashMap::new(),
             tags: Vec::new(),
+            collector_items: Vec::new(),
+            selected_collector_items: HashSet::new(),
             draft_contents: Vec::new(),
             name_input: cx.new(|cx| TextInput::new("可选，例如：震惊", cx)),
             description_input: cx.new(|cx| TextInput::new("可选，补充使用场景", cx)),
             tags_input: tags_input.clone(),
             text_content_input: cx.new(|cx| TextInput::new("输入一段 Meme 文字", cx)),
+            collector_text_input: cx.new(|cx| TextInput::new("快速收集一段文字", cx)),
             notice: None,
             opening_storage: false,
             analyzing_images: false,
             detecting_characters: false,
+            collecting: false,
+            show_only_collector_duplicates: false,
+            collector_context_menu: None,
         };
 
         cx.subscribe(&tags_input, |_, _, _: &TextChanged, cx| cx.notify())
@@ -344,6 +450,12 @@ impl MemelithView {
                 self.memes = opened.memes;
                 self.pack_names = opened.pack_names;
                 self.tags = opened.tags;
+                self.collector_items = opened.collector_items;
+                self.selected_collector_items.clear();
+                self.collector_context_menu = None;
+                self.reset_add_form(cx);
+                self.collector_text_input
+                    .update(cx, |input, cx| input.reset(cx));
                 self.page = Page::All;
                 if persist {
                     self.notice = match settings::save_storage_root(&canonical_root) {
@@ -363,8 +475,8 @@ impl MemelithView {
     }
 
     fn choose_storage(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.analyzing_images || self.detecting_characters {
-            self.notice = Some(Notice::Info("图片处理完成后才能更换存储位置".to_owned()));
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.notice = Some(Notice::Info("内容处理完成后才能更换存储位置".to_owned()));
             cx.notify();
             return;
         }
@@ -399,8 +511,15 @@ impl MemelithView {
     }
 
     fn choose_images(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.analyzing_images || self.detecting_characters {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
             self.notice = Some(Notice::Info("正在处理草稿图片".to_owned()));
+            cx.notify();
+            return;
+        }
+        if self.draft_uses_collector() {
+            self.notice = Some(Notice::Info(
+                "来自 Collector 的项目不能再混入新的草稿内容".to_owned(),
+            ));
             cx.notify();
             return;
         }
@@ -416,6 +535,7 @@ impl MemelithView {
                     let database = view.database.take();
                     if database.is_some() {
                         view.analyzing_images = true;
+                        view.collector_context_menu = None;
                         view.notice = Some(Notice::Info(format!(
                             "正在计算 {} 张图片的 CLIP 特征并查重…",
                             paths.len()
@@ -448,6 +568,7 @@ impl MemelithView {
                                 view.draft_contents.push(DraftContent::Image {
                                     path,
                                     similar_images,
+                                    collector_item_id: None,
                                 });
                             }
                             Err(error) => errors.push(format!(
@@ -491,8 +612,398 @@ impl MemelithView {
         .detach();
     }
 
+    fn choose_collector_images(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.notice = Some(Notice::Info("正在处理其他内容".to_owned()));
+            cx.notify();
+            return;
+        }
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("收集图片".into()),
+        });
+        cx.spawn(async move |this, cx| match receiver.await {
+            Ok(Ok(Some(paths))) => {
+                let database = match this.update(cx, |view, cx| {
+                    let database = view.database.take();
+                    if database.is_some() {
+                        view.collecting = true;
+                        view.collector_context_menu = None;
+                        view.notice = Some(Notice::Info(format!(
+                            "正在分析并收集 {} 张图片…",
+                            paths.len()
+                        )));
+                    } else {
+                        view.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
+                    }
+                    cx.notify();
+                    database
+                }) {
+                    Ok(Some(database)) => database,
+                    Ok(None) | Err(_) => return,
+                };
+
+                let batch = cx
+                    .background_executor()
+                    .spawn(async move { collect_selected_images(database, paths) })
+                    .await;
+                let _ = this.update(cx, |view, cx| {
+                    view.apply_collector_import_batch(batch, false, cx)
+                });
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(error)) => {
+                let _ = this.update(cx, |view, cx| {
+                    view.notice = Some(Notice::Error(format!("无法打开图片选择器：{error}")));
+                    cx.notify();
+                });
+            }
+            Err(error) => {
+                let _ = this.update(cx, |view, cx| {
+                    view.notice = Some(Notice::Error(format!("图片选择已中断：{error}")));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn collect_collector_text(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.notice = Some(Notice::Info("正在处理其他内容".to_owned()));
+            cx.notify();
+            return;
+        }
+        let text = self.collector_text_input.read(cx).text();
+        if text.trim().is_empty() {
+            self.notice = Some(Notice::Error("请先输入需要收集的文字".to_owned()));
+            cx.notify();
+            return;
+        }
+        let database = self.database.take();
+        let Some(database) = database else {
+            self.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
+            cx.notify();
+            return;
+        };
+        self.collecting = true;
+        self.collector_context_menu = None;
+        self.notice = Some(Notice::Info("正在分析并收集文字…".to_owned()));
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let batch = cx
+                .background_executor()
+                .spawn(async move { collect_text_item(database, text) })
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                view.apply_collector_import_batch(batch, true, cx)
+            });
+        })
+        .detach();
+    }
+
+    fn apply_collector_import_batch(
+        &mut self,
+        batch: CollectorImportBatch,
+        reset_text: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.database = Some(batch.database);
+        self.collecting = false;
+        let mut collected = 0;
+        let mut hash_duplicates = 0;
+        let mut similar_duplicates = 0;
+        let mut errors = Vec::new();
+        for CollectorImportResult { label, result } in batch.results {
+            match result {
+                Ok(item) => {
+                    collected += 1;
+                    match item.duplicate {
+                        Some(CollectorDuplicate::Hash { .. }) => hash_duplicates += 1,
+                        Some(CollectorDuplicate::Similarity { .. }) => similar_duplicates += 1,
+                        None => {}
+                    }
+                }
+                Err(error) => errors.push(format!("{label}：{error}")),
+            }
+        }
+
+        if reset_text && collected > 0 {
+            self.collector_text_input
+                .update(cx, |input, cx| input.reset(cx));
+        }
+        let refresh_error = self.refresh_library().err().map(|error| error.to_string());
+        self.notice = if let Some(error) = refresh_error {
+            Some(Notice::Error(format!(
+                "内容已处理，但刷新 Collector 失败：{error}"
+            )))
+        } else if !errors.is_empty() {
+            Some(Notice::Error(format!(
+                "已收集 {collected} 项，部分内容失败：{}",
+                errors.join("；")
+            )))
+        } else if hash_duplicates > 0 || similar_duplicates > 0 {
+            Some(Notice::Warning(format!(
+                "已收集 {collected} 项，其中 {hash_duplicates} 项 Hash 重复、{similar_duplicates} 项疑似重复"
+            )))
+        } else {
+            Some(Notice::Success(format!("已收集 {collected} 项")))
+        };
+        cx.notify();
+    }
+
+    fn toggle_collector_filter(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_only_collector_duplicates = !self.show_only_collector_duplicates;
+        self.collector_context_menu = None;
+        cx.notify();
+    }
+
+    fn toggle_collector_item(&mut self, item_id: Uuid, cx: &mut Context<Self>) {
+        if self.draft_uses_collector() {
+            self.notice = Some(Notice::Info(
+                "Collector 内容已进入草稿，请在“添加”页面移除后再调整选择".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        let Some(item) = self.collector_items.iter().find(|item| item.id == item_id) else {
+            self.notice = Some(Notice::Error("Collector 条目已经不存在".to_owned()));
+            cx.notify();
+            return;
+        };
+        if let Some(duplicate) = &item.duplicate {
+            self.notice = Some(Notice::Info(match duplicate {
+                CollectorDuplicate::Hash { .. } => "Hash 重复项不能添加为正式项目".to_owned(),
+                CollectorDuplicate::Similarity { .. } => {
+                    "请先右键选择“这不是重复”再选取此项".to_owned()
+                }
+            }));
+        } else if !self.selected_collector_items.remove(&item_id) {
+            self.selected_collector_items.insert(item_id);
+            self.notice = None;
+        } else {
+            self.notice = None;
+        }
+        cx.notify();
+    }
+
+    fn add_selected_collector_items(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.show_only_collector_duplicates {
+            self.notice = Some(Notice::Info(
+                "请先关闭“只显示重复项”再添加所选内容".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        if self.selected_collector_items.is_empty() {
+            self.notice = Some(Notice::Info("请先选择要添加的 Collector 内容".to_owned()));
+            cx.notify();
+            return;
+        }
+        if !self.draft_contents.is_empty() {
+            self.notice = Some(Notice::Warning(
+                "“添加”页面已有草稿，请先保存或逐项移除后再从 Collector 添加".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        let Some(storage_root) = self.storage_root.as_ref() else {
+            self.notice = Some(Notice::Error("存储位置尚未准备好".to_owned()));
+            cx.notify();
+            return;
+        };
+        let mut draft = Vec::new();
+        for item in self.collector_items.iter().rev() {
+            if !self.selected_collector_items.contains(&item.id) {
+                continue;
+            }
+            if item.duplicate.is_some() {
+                self.notice = Some(Notice::Error(format!(
+                    "Collector 条目 {} 仍标记为重复",
+                    item.id
+                )));
+                cx.notify();
+                return;
+            }
+            match &item.content {
+                CollectorContent::Image { relative_path, .. } => {
+                    let path = match MemeDatabase::resolve_media_path_from_root(
+                        storage_root,
+                        relative_path,
+                    ) {
+                        Ok(path) => path,
+                        Err(error) => {
+                            self.notice =
+                                Some(Notice::Error(format!("无法打开 Collector 图片：{error}")));
+                            cx.notify();
+                            return;
+                        }
+                    };
+                    draft.push(DraftContent::Image {
+                        path,
+                        similar_images: Vec::new(),
+                        collector_item_id: Some(item.id),
+                    });
+                }
+                CollectorContent::Text { text } => draft.push(DraftContent::Text {
+                    text: text.clone(),
+                    collector_item_id: Some(item.id),
+                }),
+            }
+        }
+        if draft.is_empty() {
+            self.notice = Some(Notice::Error("选中的 Collector 内容已经不存在".to_owned()));
+            cx.notify();
+            return;
+        }
+        self.reset_add_form(cx);
+        self.draft_contents = draft;
+        self.page = Page::Add;
+        self.notice = None;
+        cx.notify();
+    }
+
+    fn open_collector_context_menu(
+        &mut self,
+        item_id: Uuid,
+        event: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.collector_context_menu = None;
+            self.notice = Some(Notice::Info(
+                "内容处理完成后才能操作 Collector 条目".to_owned(),
+            ));
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+        if self.collector_items.iter().any(|item| item.id == item_id) {
+            self.collector_context_menu = Some(CollectorContextMenu {
+                item_id,
+                position: event.position,
+            });
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    fn close_collector_context_menu(
+        &mut self,
+        _: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.collector_context_menu = None;
+        cx.notify();
+    }
+
+    fn dismiss_collector_similarity(
+        &mut self,
+        item_id: Uuid,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.collector_context_menu = None;
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.notice = Some(Notice::Info(
+                "内容处理完成后才能操作 Collector 条目".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        let Some(database) = self.database.as_mut() else {
+            self.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
+            cx.notify();
+            return;
+        };
+        match database.dismiss_collector_similarity(item_id) {
+            Ok(updated) => {
+                let Some(item) = self
+                    .collector_items
+                    .iter_mut()
+                    .find(|item| item.id == item_id)
+                else {
+                    self.notice = Some(Notice::Error(
+                        "重复状态已更新，但界面中的条目已经不存在".to_owned(),
+                    ));
+                    cx.notify();
+                    return;
+                };
+                *item = updated;
+                self.notice = Some(Notice::Success("已标记为非重复内容".to_owned()));
+            }
+            Err(error) => {
+                self.notice = Some(Notice::Error(format!("无法更新重复状态：{error}")));
+            }
+        }
+        cx.notify();
+    }
+
+    fn delete_collector_item(&mut self, item_id: Uuid, _: &mut Window, cx: &mut Context<Self>) {
+        self.collector_context_menu = None;
+        if self.analyzing_images || self.detecting_characters || self.collecting {
+            self.notice = Some(Notice::Info(
+                "内容处理完成后才能操作 Collector 条目".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        let Some(database) = self.database.as_mut() else {
+            self.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
+            cx.notify();
+            return;
+        };
+        if let Err(error) = database.delete_collector_item(item_id) {
+            self.notice = Some(Notice::Error(format!("无法删除 Collector 条目：{error}")));
+            cx.notify();
+            return;
+        }
+
+        self.collector_items.retain(|item| item.id != item_id);
+        self.selected_collector_items.remove(&item_id);
+        let previous_draft_len = self.draft_contents.len();
+        self.draft_contents
+            .retain(|content| content.collector_item_id() != Some(item_id));
+        let removed_from_draft = self.draft_contents.len() != previous_draft_len;
+        self.notice = match self.refresh_library() {
+            Ok(()) if removed_from_draft => Some(Notice::Success(
+                "已删除 Collector 条目，并从添加草稿中移除".to_owned(),
+            )),
+            Ok(()) => Some(Notice::Success("已删除 Collector 条目".to_owned())),
+            Err(error) => Some(Notice::Error(format!(
+                "Collector 条目已删除，但刷新列表失败：{error}"
+            ))),
+        };
+        cx.notify();
+    }
+
     fn detect_characters(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.analyzing_images || self.detecting_characters {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
             self.notice = Some(Notice::Info("正在处理草稿图片".to_owned()));
             cx.notify();
             return;
@@ -502,7 +1013,7 @@ impl MemelithView {
             .iter()
             .filter_map(|content| match content {
                 DraftContent::Image { path, .. } => Some(path.clone()),
-                DraftContent::Text(_) => None,
+                DraftContent::Text { .. } => None,
             })
             .collect::<Vec<_>>();
         if image_paths.is_empty() {
@@ -518,6 +1029,7 @@ impl MemelithView {
 
         let sensor = self.waifu_sensor.take();
         self.detecting_characters = true;
+        self.collector_context_menu = None;
         self.notice = Some(Notice::Info(format!(
             "正在通过 Waifu Sensor 识别 {} 张图片…",
             image_paths.len()
@@ -606,14 +1118,23 @@ impl MemelithView {
     }
 
     fn add_text_content(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.draft_uses_collector() {
+            self.notice = Some(Notice::Info(
+                "来自 Collector 的项目不能再混入新的草稿内容".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
         let text = self.text_content_input.read(cx).text();
         if text.trim().is_empty() {
             self.notice = Some(Notice::Error("请先输入文字内容".to_owned()));
             cx.notify();
             return;
         }
-        self.draft_contents
-            .push(DraftContent::Text(text.trim().to_owned()));
+        self.draft_contents.push(DraftContent::Text {
+            text: text.trim().to_owned(),
+            collector_item_id: None,
+        });
         self.text_content_input
             .update(cx, |input, cx| input.reset(cx));
         self.notice = None;
@@ -629,14 +1150,17 @@ impl MemelithView {
         if index >= self.draft_contents.len() {
             self.notice = Some(Notice::Error("要移除的内容已经不存在".to_owned()));
         } else {
-            self.draft_contents.remove(index);
+            let removed = self.draft_contents.remove(index);
+            if let Some(item_id) = removed.collector_item_id() {
+                self.selected_collector_items.remove(&item_id);
+            }
             self.notice = None;
         }
         cx.notify();
     }
 
     fn save_meme(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.analyzing_images || self.detecting_characters {
+        if self.analyzing_images || self.detecting_characters || self.collecting {
             self.notice = Some(Notice::Info("图片处理完成后才能保存 Meme".to_owned()));
             cx.notify();
             return;
@@ -654,30 +1178,52 @@ impl MemelithView {
         let name = optional_input_text(&self.name_input.read(cx).text());
         let description = optional_input_text(&self.description_input.read(cx).text());
         let tags = parse_tags(&self.tags_input.read(cx).text());
-        let contents = self
+        let collector_ids = self
             .draft_contents
             .iter()
-            .map(|content| match content {
-                DraftContent::Image { path, .. } => NewMemeContent::Image {
-                    source_path: path.clone(),
-                },
-                DraftContent::Text(text) => NewMemeContent::Text { text: text.clone() },
-            })
-            .collect();
+            .filter_map(DraftContent::collector_item_id)
+            .collect::<Vec<_>>();
+        let collector_draft = !collector_ids.is_empty();
+        if collector_draft && collector_ids.len() != self.draft_contents.len() {
+            self.notice = Some(Notice::Error(
+                "Collector 内容与普通草稿不能混合保存".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
 
         let Some(database) = self.database.as_mut() else {
             self.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
             cx.notify();
             return;
         };
-        let meme = match database.create_meme(
-            inbox_id,
-            NewMeme {
-                name,
-                description,
-                contents,
-            },
-        ) {
+        let result = if collector_draft {
+            database.promote_collector_items(
+                inbox_id,
+                collector_ids,
+                NewMemeFromCollector { name, description },
+            )
+        } else {
+            let contents = self
+                .draft_contents
+                .iter()
+                .map(|content| match content {
+                    DraftContent::Image { path, .. } => NewMemeContent::Image {
+                        source_path: path.clone(),
+                    },
+                    DraftContent::Text { text, .. } => NewMemeContent::Text { text: text.clone() },
+                })
+                .collect();
+            database.create_meme(
+                inbox_id,
+                NewMeme {
+                    name,
+                    description,
+                    contents,
+                },
+            )
+        };
+        let meme = match result {
             Ok(meme) => meme,
             Err(error) => {
                 self.notice = Some(Notice::Error(format!("保存失败：{error}")));
@@ -739,6 +1285,12 @@ impl MemelithView {
         }
     }
 
+    fn draft_uses_collector(&self) -> bool {
+        self.draft_contents
+            .iter()
+            .any(|content| content.collector_item_id().is_some())
+    }
+
     fn refresh_library(&mut self) -> Result<(), memelith_core::Error> {
         let database = self.database.as_ref().ok_or_else(|| {
             memelith_core::Error::InvalidDatabase("database is not open".to_owned())
@@ -746,15 +1298,26 @@ impl MemelithView {
         let packs = database.list_meme_packs()?;
         let memes = database.list_all_memes()?;
         let tags = database.list_tags()?;
+        let collector_items = database.list_collector_items()?;
         self.pack_names = packs.into_iter().map(|pack| (pack.id, pack.name)).collect();
         self.memes = memes;
         self.tags = tags;
+        self.collector_items = collector_items;
+        let selectable_ids = self
+            .collector_items
+            .iter()
+            .filter(|item| item.duplicate.is_none())
+            .map(|item| item.id)
+            .collect::<HashSet<_>>();
+        self.selected_collector_items
+            .retain(|id| selectable_ids.contains(id));
         Ok(())
     }
 
     fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
-        if page == Page::All
+        if matches!(page, Page::Collector | Page::All)
             && !self.analyzing_images
+            && !self.collecting
             && let Err(error) = self.refresh_library()
         {
             self.notice = Some(Notice::Error(format!("无法刷新 Meme：{error}")));
@@ -859,7 +1422,7 @@ impl MemelithView {
                     .child(APPLICATION_NAME),
             )
             .child(div().px_4().flex().flex_col().gap_1().children(
-                [Page::Add, Page::All, Page::Settings].map(|page| {
+                [Page::Collector, Page::Add, Page::All, Page::Settings].map(|page| {
                     let selected = self.page == page;
                     div()
                         .id(("nav", page.index()))
@@ -908,9 +1471,17 @@ impl MemelithView {
 
     fn render_header(&self) -> AnyElement {
         let (title, subtitle): (SharedString, SharedString) = match self.page {
+            Page::Collector => (
+                "Collector".into(),
+                format!("快速收集 · {} 项", self.collector_items.len()).into(),
+            ),
             Page::Add => (
                 "添加 Meme".into(),
-                "保存后会进入默认的 Inbox".to_owned().into(),
+                if self.draft_uses_collector() {
+                    "补充可选信息后保存到 Inbox".to_owned().into()
+                } else {
+                    "保存后会进入默认的 Inbox".to_owned().into()
+                },
             ),
             Page::All => (
                 "全部 Meme".into(),
@@ -937,8 +1508,341 @@ impl MemelithView {
             .into_any_element()
     }
 
+    fn render_collector_page(&self, cx: &mut Context<Self>) -> AnyElement {
+        let duplicate_count = self
+            .collector_items
+            .iter()
+            .filter(|item| item.duplicate.is_some())
+            .count();
+        let visible_items = self
+            .collector_items
+            .iter()
+            .filter(|item| !self.show_only_collector_duplicates || item.duplicate.is_some())
+            .collect::<Vec<_>>();
+        let selected_count = self.selected_collector_items.len();
+        let processing = self.collecting || self.analyzing_images || self.detecting_characters;
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .px_8()
+                    .pb_4()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        glass_group().child(
+                            group_row()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(self.collector_text_input.clone()),
+                                )
+                                .child(
+                                    glass_pill("collect-text")
+                                        .when(processing, |button| {
+                                            button.opacity(0.45).cursor_default()
+                                        })
+                                        .when(!processing, |button| {
+                                            button
+                                                .on_click(cx.listener(Self::collect_collector_text))
+                                        })
+                                        .child("收集文字"),
+                                )
+                                .child(
+                                    primary_pill("collect-images")
+                                        .when(processing, |button| {
+                                            button.opacity(0.45).cursor_default()
+                                        })
+                                        .when(!processing, |button| {
+                                            button.on_click(
+                                                cx.listener(Self::choose_collector_images),
+                                            )
+                                        })
+                                        .child(if self.collecting {
+                                            "正在收集…"
+                                        } else {
+                                            "选择图片"
+                                        }),
+                                ),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .h(px(32.))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .id("collector-duplicates-filter")
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(Self::toggle_collector_filter))
+                                    .child(checkbox(
+                                        "collector-duplicates-checkbox",
+                                        self.show_only_collector_duplicates,
+                                    ))
+                                    .child(
+                                        div().text_sm().text_color(rgb(INK)).child("只显示重复项"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgba(LABEL_3))
+                                            .child(duplicate_count.to_string()),
+                                    ),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgba(LABEL_2))
+                                    .child(format!("已选 {selected_count} 项")),
+                            )
+                            .child(
+                                primary_pill("promote-collector-items")
+                                    .when(
+                                        selected_count == 0
+                                            || processing
+                                            || self.show_only_collector_duplicates,
+                                        |button| button.opacity(0.45).cursor_default(),
+                                    )
+                                    .when(
+                                        selected_count > 0
+                                            && !processing
+                                            && !self.show_only_collector_duplicates,
+                                        |button| {
+                                            button.on_click(
+                                                cx.listener(Self::add_selected_collector_items),
+                                            )
+                                        },
+                                    )
+                                    .child("添加"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .id("collector-page-scroll")
+                    .min_h_0()
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .px_8()
+                    .pb_8()
+                    .when(visible_items.is_empty(), |element| {
+                        element.child(
+                            div()
+                                .size_full()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .justify_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_size(px(17.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgba(LABEL_2))
+                                        .child(if self.show_only_collector_duplicates {
+                                            "没有重复项"
+                                        } else {
+                                            "Collector 为空"
+                                        }),
+                                )
+                                .child(div().text_size(px(13.)).text_color(rgba(LABEL_3)).child(
+                                    if self.show_only_collector_duplicates {
+                                        "当前没有需要处理的重复内容。"
+                                    } else {
+                                        "选择图片或收集文字。"
+                                    },
+                                )),
+                        )
+                    })
+                    .child(
+                        div().flex().flex_wrap().gap_4().children(
+                            visible_items
+                                .into_iter()
+                                .map(|item| self.render_collector_item(item, cx)),
+                        ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_collector_item(&self, item: &CollectorItem, cx: &mut Context<Self>) -> AnyElement {
+        let item_id = item.id;
+        let selected = self.selected_collector_items.contains(&item_id);
+        let (warning_color, warning_label) = match &item.duplicate {
+            Some(CollectorDuplicate::Hash { target }) => {
+                let target_label = target
+                    .meme_name
+                    .as_deref()
+                    .map(|name| format!("Hash 重复 · {name}"))
+                    .unwrap_or_else(|| "Hash 重复".to_owned());
+                (Some(DANGER), Some(target_label))
+            }
+            Some(CollectorDuplicate::Similarity {
+                target,
+                cosine_distance,
+            }) => {
+                let similarity = ((1.0 - cosine_distance).clamp(0.0, 1.0) * 100.0) as f64;
+                let target_label = target
+                    .meme_name
+                    .as_deref()
+                    .map(|name| format!("疑似与「{name}」重复 · {similarity:.1}%"))
+                    .unwrap_or_else(|| format!("疑似重复 · {similarity:.1}%"));
+                (Some(WARNING), Some(target_label))
+            }
+            None => (None, None),
+        };
+        let preview = match &item.content {
+            CollectorContent::Image { relative_path, .. } => self
+                .storage_root
+                .as_ref()
+                .and_then(|root| {
+                    MemeDatabase::resolve_media_path_from_root(root, relative_path).ok()
+                })
+                .map(|path| {
+                    div()
+                        .size_full()
+                        .bg(rgba(0x3c3c4314))
+                        .child(img(path).size_full().object_fit(ObjectFit::Cover))
+                        .into_any_element()
+                })
+                .unwrap_or_else(|| {
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_sm()
+                        .text_color(rgba(LABEL_3))
+                        .child("无法预览")
+                        .into_any_element()
+                }),
+            CollectorContent::Text { text } => div()
+                .size_full()
+                .p_4()
+                .overflow_hidden()
+                .bg(rgba(0x5856d61a))
+                .text_color(rgb(0x4543b8))
+                .text_size(px(15.))
+                .line_height(px(22.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(text.clone())
+                .into_any_element(),
+        };
+
+        glass_card()
+            .id(SharedString::from(format!("collector-item-{item_id}")))
+            .relative()
+            .w(px(210.))
+            .h(px(220.))
+            .overflow_hidden()
+            .cursor_pointer()
+            .when(selected, |card| card.border_2().border_color(rgb(ACCENT)))
+            .when_some(warning_color, |card, color| {
+                card.border_2().border_color(rgb(color))
+            })
+            .when(!selected && warning_color.is_none(), |card| {
+                card.hover(|style| style.bg(rgba(GLASS_STRONG)))
+            })
+            .on_click(cx.listener(move |view, event: &gpui::ClickEvent, _, cx| {
+                if event.standard_click() {
+                    view.toggle_collector_item(item_id, cx);
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |view, event, window, cx| {
+                    view.open_collector_context_menu(item_id, event, window, cx)
+                }),
+            )
+            .child(div().h(px(174.)).w_full().overflow_hidden().child(preview))
+            .child(
+                div().h(px(46.)).px_3().flex().items_center().child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(warning_color.map(rgb).unwrap_or_else(|| rgba(LABEL_2)))
+                        .truncate()
+                        .child(warning_label.unwrap_or_else(|| match &item.content {
+                            CollectorContent::Image { .. } => "图片".to_owned(),
+                            CollectorContent::Text { .. } => "文字".to_owned(),
+                        })),
+                ),
+            )
+            .when(item.duplicate.is_none(), |card| {
+                card.child(
+                    div()
+                        .absolute()
+                        .top(px(10.))
+                        .right(px(10.))
+                        .p(px(4.))
+                        .rounded(px(7.))
+                        .bg(rgba(0xffffffd9))
+                        .shadow(control_shadow())
+                        .child(checkbox(
+                            SharedString::from(format!("collector-select-{item_id}")),
+                            selected,
+                        )),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn render_collector_context_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let state = self.collector_context_menu?;
+        let item = self
+            .collector_items
+            .iter()
+            .find(|item| item.id == state.item_id)?;
+        let item_id = state.item_id;
+        let mut menu = context_menu()
+            .id("collector-context-menu")
+            .on_mouse_down_out(cx.listener(Self::close_collector_context_menu));
+        if matches!(item.duplicate, Some(CollectorDuplicate::Similarity { .. })) {
+            menu = menu.child(
+                context_menu_item("collector-not-duplicate", "这不是重复").on_click(cx.listener(
+                    move |view, _, window, cx| {
+                        view.dismiss_collector_similarity(item_id, window, cx)
+                    },
+                )),
+            );
+        }
+        let menu = menu.child(
+            context_menu_item("collector-delete", "删除")
+                .text_color(rgb(DANGER))
+                .on_click(cx.listener(move |view, _, window, cx| {
+                    view.delete_collector_item(item_id, window, cx)
+                })),
+        );
+        Some(
+            deferred(
+                anchored()
+                    .position(state.position)
+                    .anchor(Corner::TopLeft)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(menu),
+            )
+            .with_priority(3)
+            .into_any_element(),
+        )
+    }
+
     fn render_add_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let image_processing = self.analyzing_images || self.detecting_characters;
+        let collector_draft = self.draft_uses_collector();
         let has_images = self
             .draft_contents
             .iter()
@@ -979,10 +1883,10 @@ impl MemelithView {
                         )
                         .child(
                             glass_pill("choose-images")
-                                .when(image_processing, |button| {
+                                .when(image_processing || collector_draft, |button| {
                                     button.opacity(0.45).cursor_default()
                                 })
-                                .when(!image_processing, |button| {
+                                .when(!image_processing && !collector_draft, |button| {
                                     button.on_click(cx.listener(Self::choose_images))
                                 })
                                 .child(choose_images_label),
@@ -994,7 +1898,12 @@ impl MemelithView {
                 .child(div().flex_1().child(self.text_content_input.clone()))
                 .child(
                     glass_pill("add-text-content")
-                        .on_click(cx.listener(Self::add_text_content))
+                        .when(collector_draft, |button| {
+                            button.opacity(0.45).cursor_default()
+                        })
+                        .when(!collector_draft, |button| {
+                            button.on_click(cx.listener(Self::add_text_content))
+                        })
                         .child("添加文字"),
                 ),
         );
@@ -1133,6 +2042,7 @@ impl MemelithView {
             DraftContent::Image {
                 path,
                 similar_images,
+                ..
             } => {
                 let mut image_preview = div().flex().flex_col().gap_1().child(
                     div()
@@ -1181,7 +2091,7 @@ impl MemelithView {
                 }
                 image_preview.into_any_element()
             }
-            DraftContent::Text(text) => div()
+            DraftContent::Text { text, .. } => div()
                 .flex()
                 .items_center()
                 .gap_3()
@@ -1419,11 +2329,15 @@ impl MemelithView {
                                 .child(
                                     glass_pill("change-storage")
                                         .when(
-                                            self.analyzing_images || self.detecting_characters,
+                                            self.analyzing_images
+                                                || self.detecting_characters
+                                                || self.collecting,
                                             |button| button.opacity(0.45).cursor_default(),
                                         )
                                         .when(
-                                            !self.analyzing_images && !self.detecting_characters,
+                                            !self.analyzing_images
+                                                && !self.detecting_characters
+                                                && !self.collecting,
                                             |button| {
                                                 button.on_click(cx.listener(Self::choose_storage))
                                             },
@@ -1444,10 +2358,12 @@ impl Render for MemelithView {
         }
 
         let page = match self.page {
+            Page::Collector => self.render_collector_page(cx),
             Page::Add => self.render_add_page(cx),
             Page::All => self.render_all_page(cx),
             Page::Settings => self.render_settings_page(cx),
         };
+        let collector_context_menu = self.render_collector_context_menu(cx);
         div()
             .size_full()
             .text_color(rgb(INK))
@@ -1467,6 +2383,7 @@ impl Render for MemelithView {
                     })
                     .child(div().min_h_0().flex_1().child(page)),
             )
+            .when_some(collector_context_menu, |root, menu| root.child(menu))
             .into_any_element()
     }
 }
@@ -1482,6 +2399,39 @@ fn analyze_selected_images(mut database: MemeDatabase, paths: Vec<PathBuf>) -> I
         })
         .collect();
     ImageAnalysisBatch { database, results }
+}
+
+fn collect_selected_images(
+    mut database: MemeDatabase,
+    paths: Vec<PathBuf>,
+) -> CollectorImportBatch {
+    let results = paths
+        .into_iter()
+        .map(|path| {
+            let label = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string());
+            let result = database
+                .collect_image(&path)
+                .map_err(|error| error.to_string());
+            CollectorImportResult { label, result }
+        })
+        .collect();
+    CollectorImportBatch { database, results }
+}
+
+fn collect_text_item(mut database: MemeDatabase, text: String) -> CollectorImportBatch {
+    let result = database
+        .collect_text(text)
+        .map_err(|error| error.to_string());
+    CollectorImportBatch {
+        database,
+        results: vec![CollectorImportResult {
+            label: "文字".to_owned(),
+            result,
+        }],
+    }
 }
 
 fn detect_draft_characters(
@@ -1551,12 +2501,14 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
     let packs = database.list_meme_packs()?;
     let memes = database.list_all_memes()?;
     let tags = database.list_tags()?;
+    let collector_items = database.list_collector_items()?;
     Ok(OpenedLibrary {
         database,
         inbox_id,
         memes,
         pack_names: packs.into_iter().map(|pack| (pack.id, pack.name)).collect(),
         tags,
+        collector_items,
     })
 }
 
