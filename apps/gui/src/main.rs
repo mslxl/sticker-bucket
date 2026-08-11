@@ -9,10 +9,11 @@ use std::{
 
 use gpui::{
     AnyElement, App, Application, Bounds, BoxShadow, Context, Corner, Div, ElementId, Entity,
-    Focusable, FontWeight, MouseButton, MouseDownEvent, ObjectFit, PathPromptOptions, Pixels,
-    Point, SharedString, Stateful, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowControlArea, WindowOptions, anchored, deferred, div, hsla, img, linear_color_stop,
-    linear_gradient, point, prelude::*, px, rgb, rgba, size,
+    Focusable, FontWeight, KeyBinding, MouseButton, MouseDownEvent, ObjectFit, PathPromptOptions,
+    Pixels, Point, PromptButton, PromptLevel, SharedString, Stateful, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, actions, anchored,
+    deferred, div, hsla, img, linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba,
+    size,
 };
 use input::{TextChanged, TextInput};
 use memelith_clip::{BuiltinModel, ClipModel, ExecutionPolicy};
@@ -32,6 +33,8 @@ const INBOX_NAME: &str = "Inbox";
 const DUPLICATE_IMAGE_MAX_COSINE_DISTANCE: f32 = 0.05;
 const MAX_TAG_SUGGESTIONS: usize = 6;
 const WAIFU_SENSOR_DATABASE_FILENAME: &str = "waifu-sensor.sqlite3";
+
+actions!(memelith, [FocusNext, FocusPrevious]);
 
 // Apple 系统色板（浅色外观）
 const ACCENT: u32 = 0x007aff; // systemBlue
@@ -141,6 +144,8 @@ fn primary_pill(id: impl Into<ElementId>) -> Stateful<Div> {
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
+        .tab_index(0)
+        .focus(|style| style.border_2().border_color(rgb(ACCENT)))
         .shadow(control_shadow())
         .hover(|style| style.bg(rgb(ACCENT_HOVER)))
         .active(|style| style.bg(rgb(ACCENT_PRESS)))
@@ -163,6 +168,8 @@ fn glass_pill(id: impl Into<ElementId>) -> Stateful<Div> {
         .text_size(px(13.))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
+        .tab_index(0)
+        .focus(|style| style.border_2().border_color(rgb(ACCENT)))
         .shadow(control_shadow())
         .hover(|style| style.bg(rgb(0xffffff)))
         .active(|style| style.bg(rgba(0xeceaf0f5)))
@@ -181,6 +188,8 @@ fn icon_button(id: impl Into<ElementId>) -> Stateful<Div> {
         .text_color(rgba(LABEL_2))
         .text_xs()
         .cursor_pointer()
+        .tab_index(0)
+        .focus(|style| style.bg(rgba(0x007aff1f)).text_color(rgb(INK)))
         .hover(|style| style.bg(rgba(0x3c3c4314)).text_color(rgb(INK)))
         .active(|style| style.bg(rgba(0x3c3c4326)))
 }
@@ -235,6 +244,8 @@ fn context_menu_item(id: impl Into<ElementId>, label: &'static str) -> Stateful<
         .text_size(px(13.))
         .text_color(rgb(INK))
         .cursor_pointer()
+        .tab_index(0)
+        .focus(|style| style.bg(rgb(ACCENT)).text_color(rgb(0xffffff)))
         .hover(|style| style.bg(rgb(ACCENT)).text_color(rgb(0xffffff)))
         .child(label)
 }
@@ -964,7 +975,12 @@ impl MemelithView {
         cx.notify();
     }
 
-    fn delete_collector_item(&mut self, item_id: Uuid, _: &mut Window, cx: &mut Context<Self>) {
+    fn request_delete_collector_item(
+        &mut self,
+        item_id: Uuid,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.collector_context_menu = None;
         if self.analyzing_images || self.detecting_characters || self.collecting {
             self.notice = Some(Notice::Info(
@@ -973,6 +989,44 @@ impl MemelithView {
             cx.notify();
             return;
         }
+        let Some(item) = self.collector_items.iter().find(|item| item.id == item_id) else {
+            self.notice = Some(Notice::Error("Collector 条目已经不存在".to_owned()));
+            cx.notify();
+            return;
+        };
+        let detail = match &item.content {
+            CollectorContent::Image { .. } => {
+                "删除后无法从 Collector 恢复；对应的图片文件也会一并移除。"
+            }
+            CollectorContent::Text { .. } => "删除后无法从 Collector 恢复。",
+        };
+
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            "删除这项 Collector 内容？",
+            Some(detail),
+            &[PromptButton::ok("删除"), PromptButton::cancel("取消")],
+            cx,
+        );
+        cx.spawn(async move |this, cx| match answer.await {
+            Ok(0) => {
+                let _ = this.update(cx, |view, cx| {
+                    view.delete_collector_item(item_id, cx);
+                });
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let _ = this.update(cx, |view, cx| {
+                    view.notice = Some(Notice::Error(format!("删除确认已中断：{error}")));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn delete_collector_item(&mut self, item_id: Uuid, cx: &mut Context<Self>) {
         let Some(database) = self.database.as_mut() else {
             self.notice = Some(Notice::Error("数据库尚未打开".to_owned()));
             cx.notify();
@@ -1197,11 +1251,18 @@ impl MemelithView {
             cx.notify();
             return;
         };
-        let result = if collector_draft {
-            database.promote_collector_items(
-                inbox_id,
-                collector_ids,
-                NewMemeFromCollector { name, description },
+        let (result, tags_to_attach) = if collector_draft {
+            (
+                database.promote_collector_items(
+                    inbox_id,
+                    collector_ids,
+                    NewMemeFromCollector {
+                        name,
+                        description,
+                        tags,
+                    },
+                ),
+                Vec::new(),
             )
         } else {
             let contents = self
@@ -1214,26 +1275,39 @@ impl MemelithView {
                     DraftContent::Text { text, .. } => NewMemeContent::Text { text: text.clone() },
                 })
                 .collect();
-            database.create_meme(
-                inbox_id,
-                NewMeme {
-                    name,
-                    description,
-                    contents,
-                },
+            (
+                database.create_meme(
+                    inbox_id,
+                    NewMeme {
+                        name,
+                        description,
+                        contents,
+                    },
+                ),
+                tags,
             )
         };
         let meme = match result {
             Ok(meme) => meme,
             Err(error) => {
-                self.notice = Some(Notice::Error(format!("保存失败：{error}")));
+                let message = if matches!(&error, memelith_core::Error::DuplicateCollectorItem(_)) {
+                    match self.refresh_library() {
+                        Ok(()) => format!("保存失败：{error}；Collector 重复状态已刷新"),
+                        Err(refresh_error) => {
+                            format!("保存失败：{error}；刷新 Collector 失败：{refresh_error}")
+                        }
+                    }
+                } else {
+                    format!("保存失败：{error}")
+                };
+                self.notice = Some(Notice::Error(message));
                 cx.notify();
                 return;
             }
         };
 
         let mut tag_error = None;
-        for tag_name in tags {
+        for tag_name in tags_to_attach {
             let tag = match database.list_tags().and_then(|known| {
                 if let Some(tag) = known
                     .into_iter()
@@ -1292,13 +1366,13 @@ impl MemelithView {
     }
 
     fn refresh_library(&mut self) -> Result<(), memelith_core::Error> {
-        let database = self.database.as_ref().ok_or_else(|| {
+        let database = self.database.as_mut().ok_or_else(|| {
             memelith_core::Error::InvalidDatabase("database is not open".to_owned())
         })?;
         let packs = database.list_meme_packs()?;
         let memes = database.list_all_memes()?;
         let tags = database.list_tags()?;
-        let collector_items = database.list_collector_items()?;
+        let collector_items = database.recheck_collector_items()?;
         self.pack_names = packs.into_iter().map(|pack| (pack.id, pack.name)).collect();
         self.memes = memes;
         self.tags = tags;
@@ -1326,6 +1400,14 @@ impl MemelithView {
         cx.notify();
     }
 
+    fn focus_next(&mut self, _: &FocusNext, window: &mut Window, _: &mut Context<Self>) {
+        window.focus_next();
+    }
+
+    fn focus_previous(&mut self, _: &FocusPrevious, window: &mut Window, _: &mut Context<Self>) {
+        window.focus_prev();
+    }
+
     fn render_onboarding(&self, cx: &mut Context<Self>) -> AnyElement {
         let button_label = if self.opening_storage {
             "正在打开…"
@@ -1333,6 +1415,9 @@ impl MemelithView {
             "选择存储位置"
         };
         div()
+            .id("onboarding-root")
+            .on_action(cx.listener(Self::focus_next))
+            .on_action(cx.listener(Self::focus_previous))
             .size_full()
             .bg(rgba(CONTENT_BG))
             .text_color(rgb(INK))
@@ -1433,6 +1518,13 @@ impl MemelithView {
                         .items_center()
                         .gap_3()
                         .cursor_pointer()
+                        .tab_index(0)
+                        .focus(|style| {
+                            style
+                                .bg(rgba(GLASS_STRONG))
+                                .border_1()
+                                .border_color(rgb(ACCENT))
+                        })
                         .text_size(px(13.))
                         .text_color(rgb(INK))
                         .when(selected, |style| {
@@ -1546,7 +1638,7 @@ impl MemelithView {
                                 .child(
                                     glass_pill("collect-text")
                                         .when(processing, |button| {
-                                            button.opacity(0.45).cursor_default()
+                                            button.opacity(0.45).cursor_default().tab_stop(false)
                                         })
                                         .when(!processing, |button| {
                                             button
@@ -1557,7 +1649,7 @@ impl MemelithView {
                                 .child(
                                     primary_pill("collect-images")
                                         .when(processing, |button| {
-                                            button.opacity(0.45).cursor_default()
+                                            button.opacity(0.45).cursor_default().tab_stop(false)
                                         })
                                         .when(!processing, |button| {
                                             button.on_click(
@@ -1585,6 +1677,8 @@ impl MemelithView {
                                     .items_center()
                                     .gap_2()
                                     .cursor_pointer()
+                                    .tab_index(0)
+                                    .focus(|style| style.rounded(px(6.)).bg(rgba(0x007aff14)))
                                     .on_click(cx.listener(Self::toggle_collector_filter))
                                     .child(checkbox(
                                         "collector-duplicates-checkbox",
@@ -1613,7 +1707,9 @@ impl MemelithView {
                                         selected_count == 0
                                             || processing
                                             || self.show_only_collector_duplicates,
-                                        |button| button.opacity(0.45).cursor_default(),
+                                        |button| {
+                                            button.opacity(0.45).cursor_default().tab_stop(false)
+                                        },
                                     )
                                     .when(
                                         selected_count > 0
@@ -1748,6 +1844,8 @@ impl MemelithView {
             .h(px(220.))
             .overflow_hidden()
             .cursor_pointer()
+            .tab_index(0)
+            .focus(|style| style.border_2().border_color(rgb(ACCENT)))
             .when(selected, |card| card.border_2().border_color(rgb(ACCENT)))
             .when_some(warning_color, |card, color| {
                 card.border_2().border_color(rgb(color))
@@ -1824,7 +1922,7 @@ impl MemelithView {
             context_menu_item("collector-delete", "删除")
                 .text_color(rgb(DANGER))
                 .on_click(cx.listener(move |view, _, window, cx| {
-                    view.delete_collector_item(item_id, window, cx)
+                    view.request_delete_collector_item(item_id, window, cx)
                 })),
         );
         Some(
@@ -1874,7 +1972,7 @@ impl MemelithView {
                         .child(
                             glass_pill("detect-characters")
                                 .when(image_processing || !has_images, |button| {
-                                    button.opacity(0.45).cursor_default()
+                                    button.opacity(0.45).cursor_default().tab_stop(false)
                                 })
                                 .when(!image_processing && has_images, |button| {
                                     button.on_click(cx.listener(Self::detect_characters))
@@ -1884,7 +1982,7 @@ impl MemelithView {
                         .child(
                             glass_pill("choose-images")
                                 .when(image_processing || collector_draft, |button| {
-                                    button.opacity(0.45).cursor_default()
+                                    button.opacity(0.45).cursor_default().tab_stop(false)
                                 })
                                 .when(!image_processing && !collector_draft, |button| {
                                     button.on_click(cx.listener(Self::choose_images))
@@ -1899,7 +1997,7 @@ impl MemelithView {
                 .child(
                     glass_pill("add-text-content")
                         .when(collector_draft, |button| {
-                            button.opacity(0.45).cursor_default()
+                            button.opacity(0.45).cursor_default().tab_stop(false)
                         })
                         .when(!collector_draft, |button| {
                             button.on_click(cx.listener(Self::add_text_content))
@@ -1949,7 +2047,7 @@ impl MemelithView {
                         div().flex().justify_end().child(
                             primary_pill("save-meme")
                                 .when(image_processing, |button| {
-                                    button.opacity(0.45).cursor_default()
+                                    button.opacity(0.45).cursor_default().tab_stop(false)
                                 })
                                 .when(!image_processing, |button| {
                                     button.on_click(cx.listener(Self::save_meme))
@@ -1998,6 +2096,8 @@ impl MemelithView {
                         .items_center()
                         .text_sm()
                         .cursor_pointer()
+                        .tab_index(0)
+                        .focus(|style| style.bg(rgba(0x007aff1f)))
                         .hover(|style| style.bg(rgba(0x007aff12)))
                         .when(index > 0, |row| row.border_t_1().border_color(rgba(SEP)))
                         .on_click(cx.listener(move |view, _, window, cx| {
@@ -2117,7 +2217,7 @@ impl MemelithView {
             .child(
                 icon_button(("remove-draft", index))
                     .when(self.detecting_characters, |button| {
-                        button.opacity(0.45).cursor_default()
+                        button.opacity(0.45).cursor_default().tab_stop(false)
                     })
                     .when(!self.detecting_characters, |button| {
                         button.on_click(
@@ -2332,7 +2432,12 @@ impl MemelithView {
                                             self.analyzing_images
                                                 || self.detecting_characters
                                                 || self.collecting,
-                                            |button| button.opacity(0.45).cursor_default(),
+                                            |button| {
+                                                button
+                                                    .opacity(0.45)
+                                                    .cursor_default()
+                                                    .tab_stop(false)
+                                            },
                                         )
                                         .when(
                                             !self.analyzing_images
@@ -2365,6 +2470,9 @@ impl Render for MemelithView {
         };
         let collector_context_menu = self.render_collector_context_menu(cx);
         div()
+            .id("memelith-root")
+            .on_action(cx.listener(Self::focus_next))
+            .on_action(cx.listener(Self::focus_previous))
             .size_full()
             .text_color(rgb(INK))
             .flex()
@@ -2501,7 +2609,7 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
     let packs = database.list_meme_packs()?;
     let memes = database.list_all_memes()?;
     let tags = database.list_tags()?;
-    let collector_items = database.list_collector_items()?;
+    let collector_items = database.recheck_collector_items()?;
     Ok(OpenedLibrary {
         database,
         inbox_id,
@@ -2642,6 +2750,10 @@ fn current_tag_fragment(value: &str) -> (usize, &str) {
 fn main() {
     Application::new().run(|cx: &mut App| {
         input::init(cx);
+        cx.bind_keys([
+            KeyBinding::new("tab", FocusNext, None),
+            KeyBinding::new("shift-tab", FocusPrevious, None),
+        ]);
         let saved_storage = settings::load_storage_root();
         let bounds = Bounds::centered(None, size(px(1120.), px(760.)), cx);
         cx.open_window(

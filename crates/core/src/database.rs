@@ -78,6 +78,7 @@ impl MemeDatabase {
             model_id,
             embedding_dimension,
         )?;
+        ensure_collector_duplicate_override_column(&connection)?;
 
         let database = Self {
             storage_root,
@@ -181,8 +182,8 @@ impl MemeDatabase {
             .connection
             .query_row(
                 "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                        duplicate_kind, duplicate_target_source, duplicate_target_id,
-                        duplicate_distance
+                        content_hash, embedding, duplicate_kind, duplicate_target_source,
+                        duplicate_target_id, duplicate_distance, duplicate_dismissed
                  FROM collector_items
                  WHERE id = ?1",
                 [id.to_string()],
@@ -197,8 +198,8 @@ impl MemeDatabase {
         let rows = {
             let mut statement = self.connection.prepare(
                 "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                        duplicate_kind, duplicate_target_source, duplicate_target_id,
-                        duplicate_distance
+                        content_hash, embedding, duplicate_kind, duplicate_target_source,
+                        duplicate_target_id, duplicate_distance, duplicate_dismissed
                  FROM collector_items
                  ORDER BY rowid DESC",
             )?;
@@ -209,6 +210,29 @@ impl MemeDatabase {
         rows.into_iter()
             .map(|row| row.into_domain(&self.connection, &self.storage_root))
             .collect()
+    }
+
+    pub fn recheck_collector_items(&mut self) -> Result<Vec<CollectorItem>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let rows = {
+            let mut statement = transaction.prepare(
+                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
+                        content_hash, embedding, duplicate_kind, duplicate_target_source,
+                        duplicate_target_id, duplicate_distance, duplicate_dismissed
+                 FROM collector_items
+                 ORDER BY rowid DESC",
+            )?;
+            statement
+                .query_map([], map_raw_collector_item)?
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        for row in &rows {
+            Self::recheck_collector_duplicate(&transaction, self.embedding_dimension, row)?;
+        }
+        transaction.commit()?;
+        self.list_collector_items()
     }
 
     pub fn dismiss_collector_similarity(&mut self, id: Uuid) -> Result<CollectorItem> {
@@ -227,7 +251,8 @@ impl MemeDatabase {
         self.connection.execute(
             "UPDATE collector_items
              SET duplicate_kind = NULL, duplicate_target_source = NULL,
-                 duplicate_target_id = NULL, duplicate_distance = NULL
+                 duplicate_target_id = NULL, duplicate_distance = NULL,
+                 duplicate_dismissed = 1
              WHERE id = ?1",
             [id.to_string()],
         )?;
@@ -273,20 +298,28 @@ impl MemeDatabase {
                 return Err(Error::DuplicateCollectorSelection(*id));
             }
         }
-        let (name, description) = validate_meme_metadata(input.name, input.description)?;
+        let NewMemeFromCollector {
+            name,
+            description,
+            tags,
+        } = input;
+        let (name, description) = validate_meme_metadata(name, description)?;
         let name_embedding = self.embed_optional_text("Meme name", name.as_deref())?;
         let description_embedding =
             self.embed_optional_text("Meme description", description.as_deref())?;
+        let tags = self.prepare_tags(tags)?;
         let meme_id = Uuid::new_v4();
-        let transaction = self.connection.transaction()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut promoted_contents = Vec::with_capacity(item_ids.len());
 
         for id in &item_ids {
             let raw = transaction
                 .query_row(
                     "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                            duplicate_kind, duplicate_target_source, duplicate_target_id,
-                            duplicate_distance
+                            content_hash, embedding, duplicate_kind, duplicate_target_source,
+                            duplicate_target_id, duplicate_distance, duplicate_dismissed
                      FROM collector_items
                      WHERE id = ?1",
                     [id.to_string()],
@@ -294,10 +327,13 @@ impl MemeDatabase {
                 )
                 .optional()?
                 .ok_or(Error::CollectorItemNotFound(*id))?;
-            let item = raw.into_domain(&transaction, &self.storage_root)?;
-            if item.duplicate.is_some() {
+            let duplicate =
+                Self::recheck_collector_duplicate(&transaction, self.embedding_dimension, &raw)?;
+            if duplicate.is_some() {
+                transaction.commit()?;
                 return Err(Error::DuplicateCollectorItem(*id));
             }
+            let item = raw.into_domain(&transaction, &self.storage_root)?;
             promoted_contents.push(collector_item_into_meme_content(item));
         }
 
@@ -351,6 +387,7 @@ impl MemeDatabase {
                 )));
             }
         }
+        attach_prepared_tags(&transaction, meme_id, &tags)?;
         transaction.commit()?;
         Ok(Meme {
             id: meme_id,
@@ -797,6 +834,25 @@ impl MemeDatabase {
         text.map(|text| self.embed_text(field, text)).transpose()
     }
 
+    fn prepare_tags(&mut self, tags: Vec<String>) -> Result<Vec<PreparedTag>> {
+        let mut normalized_names = HashSet::with_capacity(tags.len());
+        let mut prepared = Vec::with_capacity(tags.len());
+        for name in tags {
+            let name = required_text(name, "Tag name")?;
+            let normalized_name = normalize_tag_name(&name);
+            if !normalized_names.insert(normalized_name.clone()) {
+                continue;
+            }
+            let embedding = self.embed_text("Tag name", &name)?;
+            prepared.push(PreparedTag {
+                name,
+                normalized_name,
+                embedding,
+            });
+        }
+        Ok(prepared)
+    }
+
     fn prepare_contents(&mut self, contents: Vec<NewMemeContent>) -> Result<Vec<PreparedContent>> {
         contents
             .into_iter()
@@ -819,6 +875,8 @@ impl MemeDatabase {
             content.kind(),
             content.content_hash(),
             content.embedding(),
+            None,
+            true,
         )?;
         insert_collector_content(&transaction, &content, duplicate.as_ref())?;
         pending_files.promote()?;
@@ -827,19 +885,46 @@ impl MemeDatabase {
         self.get_collector_item(id)
     }
 
+    fn recheck_collector_duplicate(
+        connection: &Connection,
+        embedding_dimension: usize,
+        row: &RawCollectorItem,
+    ) -> Result<Option<DetectedDuplicate>> {
+        let duplicate = Self::find_collector_duplicate(
+            connection,
+            embedding_dimension,
+            &row.kind,
+            &row.content_hash,
+            &row.embedding,
+            Some(row.id),
+            !row.duplicate_dismissed,
+        )?;
+        let dismissed =
+            row.duplicate_dismissed && !matches!(&duplicate, Some(DetectedDuplicate::Hash { .. }));
+        update_collector_duplicate(connection, row.id, duplicate.as_ref(), dismissed)?;
+        Ok(duplicate)
+    }
+
     fn find_collector_duplicate(
         connection: &Connection,
         embedding_dimension: usize,
-        kind: &'static str,
+        kind: &str,
         content_hash: &[u8],
         embedding: &[u8],
+        collector_predecessor_of: Option<Uuid>,
+        allow_similarity: bool,
     ) -> Result<Option<DetectedDuplicate>> {
-        if let Some(target) = Self::find_hash_duplicate(connection, kind, content_hash)? {
+        if let Some(target) =
+            Self::find_hash_duplicate(connection, kind, content_hash, collector_predecessor_of)?
+        {
             return Ok(Some(DetectedDuplicate::Hash { target }));
+        }
+        if !allow_similarity {
+            return Ok(None);
         }
 
         let mut closest: Option<(DuplicateReference, f32)> = None;
-        for candidate in Self::duplicate_candidates(connection, kind)? {
+        for candidate in Self::duplicate_candidates(connection, kind, collector_predecessor_of)? {
             let distance = cosine_distance_between_encoded_embeddings(
                 embedding,
                 &candidate.embedding,
@@ -865,23 +950,37 @@ impl MemeDatabase {
 
     fn find_hash_duplicate(
         connection: &Connection,
-        kind: &'static str,
+        kind: &str,
         content_hash: &[u8],
+        collector_predecessor_of: Option<Uuid>,
     ) -> Result<Option<DuplicateReference>> {
-        let collector = connection
-            .query_row(
-                "SELECT id FROM collector_items
-                 WHERE kind = ?1 AND content_hash = ?2
-                 ORDER BY rowid DESC LIMIT 1",
-                params![kind, content_hash],
-                |row| {
-                    Ok(DuplicateReference {
-                        source: CollectorDuplicateSource::Collector,
-                        content_id: uuid_from_column(row, 0)?,
-                    })
-                },
-            )
-            .optional()?;
+        let map_target = |row: &rusqlite::Row<'_>| {
+            Ok(DuplicateReference {
+                source: CollectorDuplicateSource::Collector,
+                content_id: uuid_from_column(row, 0)?,
+            })
+        };
+        let collector = match collector_predecessor_of {
+            Some(current) => connection
+                .query_row(
+                    "SELECT id FROM collector_items
+                     WHERE kind = ?1 AND content_hash = ?2
+                       AND rowid < (SELECT rowid FROM collector_items WHERE id = ?3)
+                     ORDER BY rowid DESC LIMIT 1",
+                    params![kind, content_hash, current.to_string()],
+                    map_target,
+                )
+                .optional()?,
+            None => connection
+                .query_row(
+                    "SELECT id FROM collector_items
+                     WHERE kind = ?1 AND content_hash = ?2
+                     ORDER BY rowid DESC LIMIT 1",
+                    params![kind, content_hash],
+                    map_target,
+                )
+                .optional()?,
+        };
         if collector.is_some() {
             return Ok(collector);
         }
@@ -904,15 +1003,27 @@ impl MemeDatabase {
 
     fn duplicate_candidates(
         connection: &Connection,
-        kind: &'static str,
+        kind: &str,
+        collector_predecessor_of: Option<Uuid>,
     ) -> Result<Vec<DuplicateCandidate>> {
         let mut candidates = Vec::new();
         {
-            let mut statement = connection.prepare(
-                "SELECT id, embedding FROM collector_items
-                 WHERE kind = ?1 ORDER BY rowid DESC",
-            )?;
-            let rows = statement.query_map([kind], |row| {
+            let (sql, current) = match collector_predecessor_of {
+                Some(id) => (
+                    "SELECT id, embedding FROM collector_items
+                     WHERE kind = ?1
+                       AND rowid < (SELECT rowid FROM collector_items WHERE id = ?2)
+                     ORDER BY rowid DESC",
+                    Some(id.to_string()),
+                ),
+                None => (
+                    "SELECT id, embedding FROM collector_items
+                     WHERE kind = ?1 ORDER BY rowid DESC",
+                    None,
+                ),
+            };
+            let mut statement = connection.prepare(sql)?;
+            let map_candidate = |row: &rusqlite::Row<'_>| {
                 Ok(DuplicateCandidate {
                     target: DuplicateReference {
                         source: CollectorDuplicateSource::Collector,
@@ -920,7 +1031,11 @@ impl MemeDatabase {
                     },
                     embedding: row.get(1)?,
                 })
-            })?;
+            };
+            let rows = match current.as_deref() {
+                Some(current) => statement.query_map(params![kind, current], map_candidate)?,
+                None => statement.query_map([kind], map_candidate)?,
+            };
             candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
         }
         {
@@ -1164,6 +1279,25 @@ fn configure_connection(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_collector_duplicate_override_column(connection: &Connection) -> Result<()> {
+    let columns = {
+        let mut statement = connection.prepare("PRAGMA table_info(collector_items)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if columns.iter().any(|column| column == "duplicate_dismissed") {
+        return Ok(());
+    }
+    connection.execute(
+        "ALTER TABLE collector_items
+         ADD COLUMN duplicate_dismissed INTEGER NOT NULL DEFAULT 0
+         CHECK(duplicate_dismissed IN (0, 1))",
+        [],
+    )?;
+    Ok(())
+}
+
 fn migrate_database(
     connection: &mut Connection,
     storage_root: &Path,
@@ -1378,6 +1512,7 @@ fn create_schema(
             duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
             duplicate_target_id TEXT,
             duplicate_distance REAL,
+            duplicate_dismissed INTEGER NOT NULL DEFAULT 0 CHECK(duplicate_dismissed IN (0, 1)),
             CHECK(
                 (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
                  relative_path IS NULL AND width IS NULL AND height IS NULL AND
@@ -1392,7 +1527,8 @@ fn create_schema(
                  duplicate_target_id IS NOT NULL AND duplicate_distance IS NULL) OR
                 (duplicate_kind = 'similarity' AND duplicate_target_source IS NOT NULL AND
                  duplicate_target_id IS NOT NULL AND duplicate_distance BETWEEN 0.0 AND 2.0)
-            )
+            ),
+            CHECK(duplicate_dismissed = 0 OR duplicate_kind IS NULL)
         );
         CREATE INDEX collector_items_kind_hash ON collector_items(kind, content_hash);
         CREATE TABLE tags (
@@ -1523,6 +1659,7 @@ fn migrate_v1_to_v2(
             duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
             duplicate_target_id TEXT,
             duplicate_distance REAL,
+            duplicate_dismissed INTEGER NOT NULL DEFAULT 0 CHECK(duplicate_dismissed IN (0, 1)),
             CHECK(
                 (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
                  relative_path IS NULL AND width IS NULL AND height IS NULL AND
@@ -1537,7 +1674,8 @@ fn migrate_v1_to_v2(
                  duplicate_target_id IS NOT NULL AND duplicate_distance IS NULL) OR
                 (duplicate_kind = 'similarity' AND duplicate_target_source IS NOT NULL AND
                  duplicate_target_id IS NOT NULL AND duplicate_distance BETWEEN 0.0 AND 2.0)
-            )
+            ),
+            CHECK(duplicate_dismissed = 0 OR duplicate_kind IS NULL)
          );
          CREATE INDEX collector_items_kind_hash ON collector_items(kind, content_hash);"
     ))?;
@@ -1634,6 +1772,13 @@ enum DetectedDuplicate {
         target: DuplicateReference,
         cosine_distance: f32,
     },
+}
+
+#[derive(Debug)]
+struct PreparedTag {
+    name: String,
+    normalized_name: String,
+    embedding: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -1787,11 +1932,72 @@ impl DuplicateDatabaseValues {
     }
 }
 
+fn update_collector_duplicate(
+    connection: &Connection,
+    item_id: Uuid,
+    duplicate: Option<&DetectedDuplicate>,
+    dismissed: bool,
+) -> Result<()> {
+    let duplicate = DuplicateDatabaseValues::from_detected(duplicate);
+    let changed = connection.execute(
+        "UPDATE collector_items
+         SET duplicate_kind = ?2, duplicate_target_source = ?3,
+             duplicate_target_id = ?4, duplicate_distance = ?5,
+             duplicate_dismissed = ?6
+         WHERE id = ?1",
+        params![
+            item_id.to_string(),
+            duplicate.kind,
+            duplicate.target_source,
+            duplicate.target_id,
+            duplicate.distance,
+            if dismissed { 1_i64 } else { 0_i64 },
+        ],
+    )?;
+    if changed != 1 {
+        return Err(Error::CollectorItemNotFound(item_id));
+    }
+    Ok(())
+}
+
 fn duplicate_source_to_database_str(source: CollectorDuplicateSource) -> &'static str {
     match source {
         CollectorDuplicateSource::Collector => "collector",
         CollectorDuplicateSource::Meme => "meme",
     }
+}
+
+fn attach_prepared_tags(
+    connection: &Connection,
+    meme_id: Uuid,
+    tags: &[PreparedTag],
+) -> Result<()> {
+    for tag in tags {
+        let existing = connection
+            .query_row(
+                "SELECT id FROM tags WHERE normalized_name = ?1",
+                [&tag.normalized_name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let tag_id = match existing {
+            Some(raw) => parse_database_uuid(&raw, "Tag ID")?,
+            None => {
+                let id = Uuid::new_v4();
+                connection.execute(
+                    "INSERT INTO tags(id, name, normalized_name, name_embedding)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id.to_string(), tag.name, tag.normalized_name, tag.embedding,],
+                )?;
+                id
+            }
+        };
+        connection.execute(
+            "INSERT INTO meme_tags(meme_id, tag_id) VALUES (?1, ?2)",
+            params![meme_id.to_string(), tag_id.to_string()],
+        )?;
+    }
+    Ok(())
 }
 
 fn insert_contents(
@@ -1952,10 +2158,13 @@ struct RawCollectorItem {
     height: Option<i64>,
     byte_size: Option<i64>,
     image_format: Option<String>,
+    content_hash: Vec<u8>,
+    embedding: Vec<u8>,
     duplicate_kind: Option<String>,
     duplicate_target_source: Option<String>,
     duplicate_target_id: Option<String>,
     duplicate_distance: Option<f64>,
+    duplicate_dismissed: bool,
 }
 
 fn map_raw_collector_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCollectorItem> {
@@ -1968,10 +2177,13 @@ fn map_raw_collector_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCollec
         height: row.get(5)?,
         byte_size: row.get(6)?,
         image_format: row.get(7)?,
-        duplicate_kind: row.get(8)?,
-        duplicate_target_source: row.get(9)?,
-        duplicate_target_id: row.get(10)?,
-        duplicate_distance: row.get(11)?,
+        content_hash: row.get(8)?,
+        embedding: row.get(9)?,
+        duplicate_kind: row.get(10)?,
+        duplicate_target_source: row.get(11)?,
+        duplicate_target_id: row.get(12)?,
+        duplicate_distance: row.get(13)?,
+        duplicate_dismissed: row.get(14)?,
     })
 }
 

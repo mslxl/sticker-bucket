@@ -81,10 +81,10 @@ pub enum CollectorContent {
     },
 }
 
-/// Duplicate status captured when an item enters the Collector.
+/// Current duplicate status for an item in the Collector.
 ///
-/// The status is deliberately retained if the target is later removed. A
-/// similarity status can be dismissed explicitly; a hash status cannot.
+/// Similarity status can be dismissed explicitly. Statuses are rechecked when
+/// the library changes so a deleted duplicate target does not strand an item.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectorDuplicate {
     Hash {
@@ -104,11 +104,10 @@ pub enum CollectorDuplicateSource {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectorDuplicateTarget {
-    /// The target's location when it was last known. Promoting a Collector
-    /// target updates this to `Meme` while preserving `content_id`.
+    /// The target's current location. Promoting a Collector target updates
+    /// this to `Meme` while preserving `content_id`.
     pub source: CollectorDuplicateSource,
-    /// A persistent historical identifier. The target may since have been
-    /// deleted or replaced; duplicate status remains valid as an intake audit.
+    /// The content identifier used to revalidate this duplicate relationship.
     pub content_id: Uuid,
     /// Present only while a Meme target still exists.
     pub meme_id: Option<Uuid>,
@@ -194,6 +193,7 @@ pub struct NewMeme {
 pub struct NewMemeFromCollector {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
