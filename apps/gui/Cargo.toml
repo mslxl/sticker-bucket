@@ -8,6 +8,17 @@ license.workspace = true
 name = "memelith"
 path = "src/main.rs"
 
+[package.metadata.bundle]
+name = "Memelith"
+identifier = "org.memelith.app"
+category = "Graphics and Design"
+short_description = "A local meme library and collector."
+resources = [
+    "crates/clip/assets/models/chinese-clip-vit-base-patch16",
+    "crates/waifu-sensor/assets/models/ml-danbooru",
+]
+osx_minimum_system_version = "14.0"
+
 [dependencies]
 dirs = "6.0.0"
 gpui.workspace = true

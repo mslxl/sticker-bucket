@@ -3,6 +3,8 @@ mod settings;
 
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsStr,
+    io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
 };
@@ -33,6 +35,8 @@ const INBOX_NAME: &str = "Inbox";
 const DUPLICATE_IMAGE_MAX_COSINE_DISTANCE: f32 = 0.05;
 const MAX_TAG_SUGGESTIONS: usize = 6;
 const WAIFU_SENSOR_DATABASE_FILENAME: &str = "waifu-sensor.sqlite3";
+const BUNDLED_CLIP_MODELS_DIRECTORY: &str = "crates/clip/assets/models";
+const BUNDLED_WAIFU_MODEL_DIRECTORY: &str = "crates/waifu-sensor/assets/models/ml-danbooru";
 
 actions!(memelith, [FocusNext, FocusPrevious]);
 
@@ -359,6 +363,9 @@ struct CharacterDetectionBatch {
 
 #[derive(Debug, Error)]
 enum UiError {
+    #[error("无法定位应用资源：{0}")]
+    Resources(#[from] io::Error),
+
     #[error("无法加载 embedding 模型：{0}")]
     Clip(#[from] memelith_clip::Error),
 
@@ -2572,7 +2579,13 @@ fn detect_draft_characters(
 fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
     let bundle = WaifuBuiltinAssets::bundle()?;
     let model_manifest = WaifuBuiltinAssets::model_manifest()?;
-    let model_path = WaifuBuiltinAssets::model_path()?;
+    let model_path = match macos_bundle_resources_directory()? {
+        Some(resources) => WaifuModelManager::path_in(
+            &model_manifest,
+            resources.join(BUNDLED_WAIFU_MODEL_DIRECTORY),
+        ),
+        None => WaifuBuiltinAssets::model_path()?,
+    };
     WaifuModelManager::verify(&model_manifest, &model_path)?;
     let classes = WaifuBuiltinAssets::model_classes()?;
     let tagger = MlDanbooruTagger::load_with_classes(
@@ -2588,10 +2601,14 @@ fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
 }
 
 fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
-    let model = ClipModel::load_builtin(
-        BuiltinModel::ChineseClipVitBasePatch16,
-        ExecutionPolicy::Auto,
-    )?;
+    let builtin_model = BuiltinModel::ChineseClipVitBasePatch16;
+    let model_directory = match macos_bundle_resources_directory()? {
+        Some(resources) => resources
+            .join(BUNDLED_CLIP_MODELS_DIRECTORY)
+            .join(builtin_model.directory_name()),
+        None => builtin_model.directory(),
+    };
+    let model = ClipModel::load(model_directory, ExecutionPolicy::Auto)?;
     let mut database = MemeDatabase::open(storage_root, model)?;
     let packs = database.list_meme_packs()?;
     let inbox_id = if let Some(inbox) = packs.iter().find(|pack| pack.name == INBOX_NAME) {
@@ -2774,6 +2791,22 @@ fn main() {
         .expect("failed to open the Memelith window");
         cx.activate(true);
     });
+}
+
+fn macos_bundle_resources_directory() -> io::Result<Option<PathBuf>> {
+    let executable = std::env::current_exe()?;
+    let Some(macos_directory) = executable.parent() else {
+        return Ok(None);
+    };
+    let Some(contents_directory) = macos_directory.parent() else {
+        return Ok(None);
+    };
+    if macos_directory.file_name() != Some(OsStr::new("MacOS"))
+        || contents_directory.file_name() != Some(OsStr::new("Contents"))
+    {
+        return Ok(None);
+    }
+    Ok(Some(contents_directory.join("Resources")))
 }
 
 #[cfg(test)]

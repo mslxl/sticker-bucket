@@ -37,6 +37,8 @@
           toolchain
           pkgs.pkg-config
           pkgs.diesel-cli
+          pkgs.cargo-bundle
+          pkgs.macdylibbundler
           pkgs.cargo-tauri
         ];
       in

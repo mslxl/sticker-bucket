@@ -57,6 +57,18 @@ Start the GUI:
 cargo run -p memelith
 ```
 
+Build the native macOS application bundle from the workspace root:
+
+```sh
+nix develop --command scripts/package-macos.sh
+```
+
+The application is written to
+`target/macos-bundle/release/bundle/osx/Memelith.app`. The script bundles
+non-system dynamic libraries and applies an ad-hoc signature by default. Set
+`CODESIGN_IDENTITY` to use an installed signing identity instead. The generated
+arm64 bundle requires macOS 14 or later.
+
 Bundled ONNX artifacts are stored through Git LFS. Their pinned upstream
 download or export sources are listed in
 [`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
