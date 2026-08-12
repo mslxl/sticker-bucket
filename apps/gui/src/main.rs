@@ -1,4 +1,5 @@
 mod input;
+mod search;
 mod settings;
 mod telegram;
 
@@ -22,7 +23,7 @@ use input::{TextChanged, TextInput};
 use memelith_clip::{BuiltinModel, ClipModel, ExecutionPolicy};
 use memelith_core::{
     APPLICATION_NAME, CollectorContent, CollectorDuplicate, CollectorItem, Meme, MemeContent,
-    MemeDatabase, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag,
+    MemeDatabase, MemePack, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag,
     SimilarMemeImage, Tag,
 };
 use thiserror::Error;
@@ -260,6 +261,7 @@ enum Page {
     Collector,
     Add,
     All,
+    MemePacks,
     Settings,
 }
 
@@ -269,6 +271,7 @@ impl Page {
             Self::Collector => "Collector",
             Self::Add => "添加",
             Self::All => "全部",
+            Self::MemePacks => "MemePack",
             Self::Settings => "设置",
         }
     }
@@ -278,6 +281,7 @@ impl Page {
             Self::Collector => "\u{25c8}",
             Self::Add => "＋",
             Self::All => "▦",
+            Self::MemePacks => "▤",
             Self::Settings => "⚙\u{fe0e}",
         }
     }
@@ -287,7 +291,8 @@ impl Page {
             Self::Collector => 0,
             Self::Add => 1,
             Self::All => 2,
-            Self::Settings => 3,
+            Self::MemePacks => 3,
+            Self::Settings => 4,
         }
     }
 }
@@ -378,6 +383,7 @@ struct OpenedLibrary {
     database: MemeDatabase,
     inbox_id: Uuid,
     memes: Vec<Meme>,
+    meme_packs: Vec<MemePack>,
     pack_names: HashMap<Uuid, String>,
     tags: Vec<Tag>,
     collector_items: Vec<CollectorItem>,
@@ -390,6 +396,7 @@ struct MemelithView {
     inbox_id: Option<Uuid>,
     page: Page,
     memes: Vec<Meme>,
+    meme_packs: Vec<MemePack>,
     pack_names: HashMap<Uuid, String>,
     tags: Vec<Tag>,
     collector_items: Vec<CollectorItem>,
@@ -400,6 +407,8 @@ struct MemelithView {
     tags_input: Entity<TextInput>,
     text_content_input: Entity<TextInput>,
     collector_text_input: Entity<TextInput>,
+    meme_search_input: Entity<TextInput>,
+    meme_search: Result<Option<search::SearchExpression>, search::SearchError>,
     telegram_token_input: Entity<TextInput>,
     telegram_enabled: bool,
     telegram_token: String,
@@ -420,6 +429,7 @@ impl MemelithView {
         cx: &mut Context<Self>,
     ) -> Self {
         let tags_input = cx.new(|cx| TextInput::new("用逗号分隔，例如：猫猫, 反应", cx));
+        let meme_search_input = cx.new(|cx| TextInput::new("搜索 Meme", cx));
         let telegram_token_input = cx.new(|cx| TextInput::new("粘贴 BotFather 提供的 token", cx));
         let (telegram_enabled, telegram_token, telegram_error) = match saved_telegram {
             Ok(settings) => (settings.enabled, settings.token, None),
@@ -436,6 +446,7 @@ impl MemelithView {
             inbox_id: None,
             page: Page::All,
             memes: Vec::new(),
+            meme_packs: Vec::new(),
             pack_names: HashMap::new(),
             tags: Vec::new(),
             collector_items: Vec::new(),
@@ -446,6 +457,8 @@ impl MemelithView {
             tags_input: tags_input.clone(),
             text_content_input: cx.new(|cx| TextInput::new("输入一段 Meme 文字", cx)),
             collector_text_input: cx.new(|cx| TextInput::new("快速收集一段文字", cx)),
+            meme_search_input: meme_search_input.clone(),
+            meme_search: Ok(None),
             telegram_token_input,
             telegram_enabled,
             telegram_token,
@@ -461,6 +474,12 @@ impl MemelithView {
 
         cx.subscribe(&tags_input, |_, _, _: &TextChanged, cx| cx.notify())
             .detach();
+        cx.subscribe(&meme_search_input, |view, input, _: &TextChanged, cx| {
+            let query = input.read(cx).text();
+            view.meme_search = search::SearchExpression::parse(&query);
+            cx.notify();
+        })
+        .detach();
 
         match saved_storage {
             Ok(Some(path)) => view.activate_storage(path, false, cx),
@@ -489,6 +508,7 @@ impl MemelithView {
                 self.storage_root = Some(canonical_root.clone());
                 self.inbox_id = Some(opened.inbox_id);
                 self.memes = opened.memes;
+                self.meme_packs = opened.meme_packs;
                 self.pack_names = opened.pack_names;
                 self.tags = opened.tags;
                 self.collector_items = opened.collector_items;
@@ -496,6 +516,8 @@ impl MemelithView {
                 self.collector_context_menu = None;
                 self.reset_add_form(cx);
                 self.collector_text_input
+                    .update(cx, |input, cx| input.reset(cx));
+                self.meme_search_input
                     .update(cx, |input, cx| input.reset(cx));
                 self.page = Page::All;
                 if persist {
@@ -1482,7 +1504,11 @@ impl MemelithView {
         let memes = database.list_all_memes()?;
         let tags = database.list_tags()?;
         let collector_items = database.recheck_collector_items()?;
-        self.pack_names = packs.into_iter().map(|pack| (pack.id, pack.name)).collect();
+        self.pack_names = packs
+            .iter()
+            .map(|pack| (pack.id, pack.name.clone()))
+            .collect();
+        self.meme_packs = packs;
         self.memes = memes;
         self.tags = tags;
         self.collector_items = collector_items;
@@ -1498,7 +1524,7 @@ impl MemelithView {
     }
 
     fn navigate(&mut self, page: Page, cx: &mut Context<Self>) {
-        if matches!(page, Page::Collector | Page::All)
+        if matches!(page, Page::Collector | Page::All | Page::MemePacks)
             && !self.analyzing_images
             && !self.collecting
             && let Err(error) = self.refresh_library()
@@ -1615,48 +1641,57 @@ impl MemelithView {
                     .window_control_area(WindowControlArea::Drag)
                     .child(APPLICATION_NAME),
             )
-            .child(div().px_4().flex().flex_col().gap_1().children(
-                [Page::Collector, Page::Add, Page::All, Page::Settings].map(|page| {
-                    let selected = self.page == page;
-                    div()
-                        .id(("nav", page.index()))
-                        .h(px(32.))
-                        .px_3()
-                        .rounded(px(9.))
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .cursor_pointer()
-                        .tab_index(0)
-                        .focus(|style| {
-                            style
-                                .bg(rgba(GLASS_STRONG))
-                                .border_1()
-                                .border_color(rgb(ACCENT))
-                        })
-                        .text_size(px(13.))
-                        .text_color(rgb(INK))
-                        .when(selected, |style| {
-                            style
-                                .bg(rgba(GLASS_STRONG))
-                                .shadow(control_shadow())
-                                .font_weight(FontWeight::SEMIBOLD)
-                        })
-                        .when(!selected, |style| {
-                            style.hover(|style| style.bg(rgba(0xffffff73)))
-                        })
-                        .active(|style| style.bg(rgba(0xffffffff)))
-                        .on_click(cx.listener(move |view, _, _, cx| view.navigate(page, cx)))
-                        .child(
-                            div()
-                                .w(px(20.))
-                                .text_center()
-                                .text_color(rgb(ACCENT))
-                                .child(page.icon()),
-                        )
-                        .child(page.label())
-                }),
-            ))
+            .child(
+                div().px_4().flex().flex_col().gap_1().children(
+                    [
+                        Page::Collector,
+                        Page::Add,
+                        Page::All,
+                        Page::MemePacks,
+                        Page::Settings,
+                    ]
+                    .map(|page| {
+                        let selected = self.page == page;
+                        div()
+                            .id(("nav", page.index()))
+                            .h(px(32.))
+                            .px_3()
+                            .rounded(px(9.))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .cursor_pointer()
+                            .tab_index(0)
+                            .focus(|style| {
+                                style
+                                    .bg(rgba(GLASS_STRONG))
+                                    .border_1()
+                                    .border_color(rgb(ACCENT))
+                            })
+                            .text_size(px(13.))
+                            .text_color(rgb(INK))
+                            .when(selected, |style| {
+                                style
+                                    .bg(rgba(GLASS_STRONG))
+                                    .shadow(control_shadow())
+                                    .font_weight(FontWeight::SEMIBOLD)
+                            })
+                            .when(!selected, |style| {
+                                style.hover(|style| style.bg(rgba(0xffffff73)))
+                            })
+                            .active(|style| style.bg(rgba(0xffffffff)))
+                            .on_click(cx.listener(move |view, _, _, cx| view.navigate(page, cx)))
+                            .child(
+                                div()
+                                    .w(px(20.))
+                                    .text_center()
+                                    .text_color(rgb(ACCENT))
+                                    .child(page.icon()),
+                            )
+                            .child(page.label())
+                    }),
+                ),
+            )
             .child(div().flex_1())
             .child(
                 div()
@@ -1686,7 +1721,11 @@ impl MemelithView {
             ),
             Page::All => (
                 "全部 Meme".into(),
-                format!("共 {} 个，不按 MemePack 分组", self.memes.len()).into(),
+                format!("共 {} 个", self.memes.len()).into(),
+            ),
+            Page::MemePacks => (
+                "MemePack".into(),
+                format!("共 {} 个", self.meme_packs.len()).into(),
             ),
             Page::Settings => (
                 "设置".into(),
@@ -2342,17 +2381,53 @@ impl MemelithView {
     }
 
     fn render_all_page(&self, cx: &mut Context<Self>) -> AnyElement {
+        let query = self.meme_search_input.read(cx).text();
+        let search_error = self.meme_search.as_ref().err().map(ToString::to_string);
+        let visible_memes = self
+            .memes
+            .iter()
+            .enumerate()
+            .filter(|(_, meme)| {
+                self.meme_search.as_ref().is_ok_and(|expression| {
+                    expression.as_ref().is_none_or(|expression| {
+                        expression.matches(
+                            meme,
+                            self.pack_names.get(&meme.meme_pack_id).map(String::as_str),
+                        )
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        let has_no_matches =
+            search_error.is_none() && !query.trim().is_empty() && visible_memes.is_empty();
+
         div()
             .size_full()
             .id("all-page-scroll")
             .overflow_y_scroll()
             .px_8()
             .pb_8()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(520.))
+                    .flex_none()
+                    .pb_5()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(self.meme_search_input.clone())
+                    .when_some(search_error, |element, error| {
+                        element.child(div().px_2().text_xs().text_color(rgb(DANGER)).child(error))
+                    }),
+            )
             .when(self.memes.is_empty(), |element| {
                 element.child(
                     div()
                         .w_full()
-                        .h_full()
+                        .flex_1()
                         .flex()
                         .flex_col()
                         .items_center()
@@ -2382,11 +2457,35 @@ impl MemelithView {
                         ),
                 )
             })
+            .when(has_no_matches, |element| {
+                element.child(
+                    div()
+                        .w_full()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(17.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(rgba(LABEL_2))
+                                .child("没有匹配的 Meme"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(rgba(LABEL_3))
+                                .child("尝试其他关键词。"),
+                        ),
+                )
+            })
             .child(
                 div().flex().flex_wrap().gap_5().children(
-                    self.memes
-                        .iter()
-                        .enumerate()
+                    visible_memes
+                        .into_iter()
                         .map(|(index, meme)| self.render_meme(index, meme)),
                 ),
             )
@@ -2489,6 +2588,109 @@ impl MemelithView {
                         )
                     }),
             )
+            .into_any_element()
+    }
+
+    fn render_meme_packs_page(&self) -> AnyElement {
+        let meme_counts = self.memes.iter().fold(HashMap::new(), |mut counts, meme| {
+            *counts.entry(meme.meme_pack_id).or_insert(0) += 1;
+            counts
+        });
+
+        div()
+            .size_full()
+            .id("meme-packs-page-scroll")
+            .overflow_y_scroll()
+            .px_8()
+            .pb_8()
+            .when(self.meme_packs.is_empty(), |element| {
+                element.child(
+                    div()
+                        .w_full()
+                        .h_full()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(17.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(rgba(LABEL_2))
+                                .child("没有 MemePack"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(rgba(LABEL_3))
+                                .child("MemePack 会显示在这里。"),
+                        ),
+                )
+            })
+            .when(!self.meme_packs.is_empty(), |element| {
+                element.child(
+                    glass_group().children(self.meme_packs.iter().enumerate().map(
+                        |(index, pack)| {
+                            let meme_count = meme_counts.get(&pack.id).copied().unwrap_or(0);
+                            div()
+                                .flex()
+                                .flex_col()
+                                .when(index > 0, |element| element.child(hairline()))
+                                .child(
+                                    group_row()
+                                        .child(
+                                            div()
+                                                .size(px(38.))
+                                                .flex_none()
+                                                .rounded(px(9.))
+                                                .bg(rgba(0x007aff14))
+                                                .text_color(rgb(ACCENT))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .font_weight(FontWeight::BOLD)
+                                                .child("▤"),
+                                        )
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .flex_1()
+                                                .flex()
+                                                .flex_col()
+                                                .gap_1()
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .truncate()
+                                                        .child(pack.name.clone()),
+                                                )
+                                                .when_some(
+                                                    pack.description.as_ref(),
+                                                    |element, description| {
+                                                        element.child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(rgba(LABEL_2))
+                                                                .truncate()
+                                                                .child(description.clone()),
+                                                        )
+                                                    },
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_none()
+                                                .text_xs()
+                                                .text_color(rgba(LABEL_2))
+                                                .child(format!("{meme_count} 个 Meme")),
+                                        ),
+                                )
+                        },
+                    )),
+                )
+            })
             .into_any_element()
     }
 
@@ -2628,6 +2830,7 @@ impl Render for MemelithView {
             Page::Collector => self.render_collector_page(cx),
             Page::Add => self.render_add_page(cx),
             Page::All => self.render_all_page(cx),
+            Page::MemePacks => self.render_meme_packs_page(),
             Page::Settings => self.render_settings_page(cx),
         };
         let collector_context_menu = self.render_collector_context_menu(cx);
@@ -2780,7 +2983,11 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
         database,
         inbox_id,
         memes,
-        pack_names: packs.into_iter().map(|pack| (pack.id, pack.name)).collect(),
+        pack_names: packs
+            .iter()
+            .map(|pack| (pack.id, pack.name.clone()))
+            .collect(),
+        meme_packs: packs,
         tags,
         collector_items,
     })
