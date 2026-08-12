@@ -9,6 +9,8 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+const MASK_CHARACTER: &str = "\u{2022}";
+
 actions!(
     text_input,
     [
@@ -55,6 +57,7 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    masked: bool,
 }
 
 pub struct TextChanged;
@@ -73,6 +76,7 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            masked: false,
         }
     }
 
@@ -94,6 +98,16 @@ impl TextInput {
         self.last_bounds = None;
         self.is_selecting = false;
         cx.emit(TextChanged);
+        cx.notify();
+    }
+
+    pub fn set_masked(&mut self, masked: bool, cx: &mut Context<Self>) {
+        if self.masked == masked {
+            return;
+        }
+        self.masked = masked;
+        self.last_layout = None;
+        self.last_bounds = None;
         cx.notify();
     }
 
@@ -231,7 +245,7 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        self.content_offset_for_display_offset(line.closest_index_for_x(position.x - bounds.left()))
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -293,6 +307,36 @@ impl TextInput {
         self.content
             .grapheme_indices(true)
             .find_map(|(index, _)| (index > offset).then_some(index))
+            .unwrap_or(self.content.len())
+    }
+
+    fn display_text(&self) -> SharedString {
+        if self.masked {
+            MASK_CHARACTER
+                .repeat(self.content.graphemes(true).count())
+                .into()
+        } else {
+            self.content.clone()
+        }
+    }
+
+    fn display_offset_for_content_offset(&self, offset: usize) -> usize {
+        if self.masked {
+            self.content[..offset].graphemes(true).count() * MASK_CHARACTER.len()
+        } else {
+            offset
+        }
+    }
+
+    fn content_offset_for_display_offset(&self, offset: usize) -> usize {
+        if !self.masked {
+            return offset;
+        }
+        let grapheme_index = offset / MASK_CHARACTER.len();
+        self.content
+            .grapheme_indices(true)
+            .nth(grapheme_index)
+            .map(|(index, _)| index)
             .unwrap_or(self.content.len())
     }
 }
@@ -389,13 +433,15 @@ impl EntityInputHandler for TextInput {
     ) -> Option<Bounds<Pixels>> {
         let layout = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range);
+        let display_range = self.display_offset_for_content_offset(range.start)
+            ..self.display_offset_for_content_offset(range.end);
         Some(Bounds::from_corners(
             point(
-                bounds.left() + layout.x_for_index(range.start),
+                bounds.left() + layout.x_for_index(display_range.start),
                 bounds.top(),
             ),
             point(
-                bounds.left() + layout.x_for_index(range.end),
+                bounds.left() + layout.x_for_index(display_range.end),
                 bounds.bottom(),
             ),
         ))
@@ -409,7 +455,7 @@ impl EntityInputHandler for TextInput {
     ) -> Option<usize> {
         let local = self.last_bounds?.localize(&point)?;
         let layout = self.last_layout.as_ref()?;
-        let index = layout.index_for_x(point.x - local.x)?;
+        let index = self.content_offset_for_display_offset(layout.index_for_x(point.x - local.x)?);
         Some(self.offset_to_utf16(index))
     }
 }
@@ -468,13 +514,14 @@ impl Element for TextElement {
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
         let content = input.content.clone();
-        let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
+        let selected_range = input.display_offset_for_content_offset(input.selected_range.start)
+            ..input.display_offset_for_content_offset(input.selected_range.end);
+        let cursor = input.display_offset_for_content_offset(input.cursor_offset());
         let style = window.text_style();
         let (display_text, text_color) = if content.is_empty() {
             (input.placeholder.clone(), hsla(0., 0., 0.35, 0.55))
         } else {
-            (content, style.color)
+            (input.display_text(), style.color)
         };
         let run = TextRun {
             len: display_text.len(),
@@ -485,6 +532,8 @@ impl Element for TextElement {
             strikethrough: None,
         };
         let runs = if let Some(marked) = input.marked_range.as_ref() {
+            let marked = input.display_offset_for_content_offset(marked.start)
+                ..input.display_offset_for_content_offset(marked.end);
             vec![
                 TextRun {
                     len: marked.start,

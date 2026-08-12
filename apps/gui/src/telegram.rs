@@ -26,7 +26,7 @@ const PREVIEW_GUTTER: u32 = 16;
 
 #[derive(Debug, Error)]
 enum TelegramError {
-    #[error("Telegram request failed: {0}")]
+    #[error("Telegram request failed")]
     Request(#[from] reqwest::Error),
 
     #[error("Telegram returned an error: {0}")]
@@ -60,6 +60,14 @@ enum TelegramError {
     MissingSender,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TelegramBotStatus {
+    Starting,
+    Running,
+    Failed(String),
+    Stopped,
+}
+
 pub struct TelegramBotHandle {
     stop: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
@@ -70,19 +78,31 @@ impl TelegramBotHandle {
         storage_root: PathBuf,
         token: String,
         model_directory: PathBuf,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<(Self, mpsc::Receiver<TelegramBotStatus>)> {
         let (stop, stop_receiver) = mpsc::channel();
+        let (status, status_receiver) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("memelith-telegram".to_owned())
             .spawn(move || {
-                if let Err(error) = run_bot(storage_root, token, model_directory, stop_receiver) {
-                    eprintln!("Memelith Telegram bot stopped: {error}");
+                let _ = status.send(TelegramBotStatus::Starting);
+                match run_bot(storage_root, token, model_directory, stop_receiver, &status) {
+                    Ok(()) => {
+                        let _ = status.send(TelegramBotStatus::Stopped);
+                    }
+                    Err(error) => {
+                        let message = runtime_error_message(&error);
+                        eprintln!("Memelith Telegram bot stopped: {message}");
+                        let _ = status.send(TelegramBotStatus::Failed(message));
+                    }
                 }
             })?;
-        Ok(Self {
-            stop: Some(stop),
-            thread: Some(thread),
-        })
+        Ok((
+            Self {
+                stop: Some(stop),
+                thread: Some(thread),
+            },
+            status_receiver,
+        ))
     }
 
     pub fn stop(mut self) {
@@ -90,7 +110,7 @@ impl TelegramBotHandle {
         self.join();
     }
 
-    fn request_stop(&mut self) {
+    pub fn request_stop(&mut self) {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
@@ -182,6 +202,11 @@ impl TelegramApi {
                 "allowed_updates": ["message", "callback_query"],
             }),
         )
+    }
+
+    fn verify_bot(&self) -> Result<(), TelegramError> {
+        self.call::<serde_json::Value>("getMe", json!({}))?;
+        Ok(())
     }
 
     fn get_file(&self, file_id: &str) -> Result<TelegramFile, TelegramError> {
@@ -295,10 +320,18 @@ fn run_bot(
     token: String,
     model_directory: PathBuf,
     stop_receiver: mpsc::Receiver<()>,
+    status: &mpsc::Sender<TelegramBotStatus>,
 ) -> Result<(), TelegramError> {
     let api = TelegramApi::new(&token)?;
+    api.verify_bot()?;
+    if stop_receiver.try_recv().is_ok() {
+        return Ok(());
+    }
     let model = ClipModel::load(model_directory, ExecutionPolicy::Auto)
         .map_err(|error| TelegramError::Api(format!("failed to load CLIP model: {error}")))?;
+    if stop_receiver.try_recv().is_ok() {
+        return Ok(());
+    }
     let database = MemeDatabase::open(&storage_root, model)?;
     let state = Arc::new(BotState {
         api,
@@ -308,6 +341,7 @@ fn run_bot(
         pending_deletions: Mutex::new(HashSet::new()),
         workers: Mutex::new(Vec::new()),
     });
+    let _ = status.send(TelegramBotStatus::Running);
 
     let mut offset = 0_i64;
     loop {
@@ -359,6 +393,20 @@ fn run_bot(
     }
     shutdown_state(&state);
     Ok(())
+}
+
+fn runtime_error_message(error: &TelegramError) -> String {
+    match error {
+        TelegramError::Request(error) if error.is_timeout() => "Telegram 请求超时".to_owned(),
+        TelegramError::Request(error) if error.is_connect() => {
+            "无法连接 Telegram，请检查网络".to_owned()
+        }
+        TelegramError::Request(error) => match error.status() {
+            Some(status) => format!("Telegram 请求失败（HTTP {status}）"),
+            None => "Telegram 网络请求失败".to_owned(),
+        },
+        error => error.to_string(),
+    }
 }
 
 fn shutdown_state(state: &Arc<BotState>) {

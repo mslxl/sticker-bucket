@@ -8,6 +8,8 @@ use std::{
     io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    sync::mpsc,
+    time::Duration,
 };
 
 use gpui::{
@@ -39,7 +41,15 @@ const WAIFU_SENSOR_DATABASE_FILENAME: &str = "waifu-sensor.sqlite3";
 const BUNDLED_CLIP_MODELS_DIRECTORY: &str = "crates/clip/assets/models";
 const BUNDLED_WAIFU_MODEL_DIRECTORY: &str = "crates/waifu-sensor/assets/models/ml-danbooru";
 
-actions!(memelith, [FocusNext, FocusPrevious]);
+actions!(
+    memelith,
+    [
+        FocusNext,
+        FocusPrevious,
+        ConfirmTextContent,
+        CancelTextComposer
+    ]
+);
 
 // Apple 系统色板（浅色外观）
 const ACCENT: u32 = 0x007aff; // systemBlue
@@ -199,6 +209,62 @@ fn icon_button(id: impl Into<ElementId>) -> Stateful<Div> {
         .active(|style| style.bg(rgba(0x3c3c4326)))
 }
 
+fn carousel_button(id: impl Into<ElementId>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(34.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(rgba(0xffffffdc))
+        .border_1()
+        .border_color(rgba(EDGE_DARK))
+        .shadow(control_shadow())
+        .text_color(rgb(INK))
+        .text_size(px(22.))
+        .cursor_pointer()
+        .tab_index(0)
+        .focus(|style| style.border_2().border_color(rgb(ACCENT)))
+        .hover(|style| style.bg(rgb(0xffffff)))
+        .active(|style| style.bg(rgba(0xeceaf0f5)))
+}
+
+fn content_action_button(id: impl Into<ElementId>, prominent: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(32.))
+        .px_3()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(rgba(EDGE_DARK))
+        .text_size(px(13.))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .tab_index(0)
+        .when(prominent, |button| {
+            button
+                .bg(rgba(0x007aff14))
+                .text_color(rgb(ACCENT))
+                .hover(|style| style.bg(rgba(0x007aff20)))
+                .active(|style| style.bg(rgba(0x007aff2e)))
+        })
+        .when(!prominent, |button| {
+            button
+                .bg(rgba(0xffffffd9))
+                .text_color(rgb(INK))
+                .hover(|style| style.bg(rgb(0xffffff)))
+                .active(|style| style.bg(rgba(0xeceaf0f5)))
+        })
+        .focus(|style| style.border_2().border_color(rgb(ACCENT)))
+}
+
 fn checkbox(id: impl Into<ElementId>, checked: bool) -> Stateful<Div> {
     div()
         .id(id)
@@ -326,6 +392,15 @@ enum Notice {
     Error(String),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TelegramRuntimeState {
+    Stopped,
+    Starting,
+    Running,
+    Stopping,
+    Failed(String),
+}
+
 struct ImageAnalysisResult {
     path: PathBuf,
     result: Result<Vec<SimilarMemeImage>, String>,
@@ -395,6 +470,8 @@ struct MemelithView {
     collector_items: Vec<CollectorItem>,
     selected_collector_items: HashSet<Uuid>,
     draft_contents: Vec<DraftContent>,
+    active_draft_image: usize,
+    composing_text: bool,
     name_input: Entity<TextInput>,
     description_input: Entity<TextInput>,
     tags_input: Entity<TextInput>,
@@ -402,8 +479,13 @@ struct MemelithView {
     collector_text_input: Entity<TextInput>,
     telegram_token_input: Entity<TextInput>,
     telegram_enabled: bool,
+    telegram_applied_enabled: bool,
     telegram_token: String,
     telegram_runtime: Option<telegram::TelegramBotHandle>,
+    telegram_runtime_generation: u64,
+    telegram_runtime_state: TelegramRuntimeState,
+    telegram_token_error: Option<String>,
+    telegram_token_revealed: bool,
     notice: Option<Notice>,
     opening_storage: bool,
     analyzing_images: bool,
@@ -420,7 +502,9 @@ impl MemelithView {
         cx: &mut Context<Self>,
     ) -> Self {
         let tags_input = cx.new(|cx| TextInput::new("用逗号分隔，例如：猫猫, 反应", cx));
+        let text_content_input = cx.new(|cx| TextInput::new("输入 Meme 文字", cx));
         let telegram_token_input = cx.new(|cx| TextInput::new("粘贴 BotFather 提供的 token", cx));
+        telegram_token_input.update(cx, |input, cx| input.set_masked(true, cx));
         let (telegram_enabled, telegram_token, telegram_error) = match saved_telegram {
             Ok(settings) => (settings.enabled, settings.token, None),
             Err(error) => (false, String::new(), Some(error)),
@@ -441,15 +525,22 @@ impl MemelithView {
             collector_items: Vec::new(),
             selected_collector_items: HashSet::new(),
             draft_contents: Vec::new(),
+            active_draft_image: 0,
+            composing_text: false,
             name_input: cx.new(|cx| TextInput::new("可选，例如：震惊", cx)),
             description_input: cx.new(|cx| TextInput::new("可选，补充使用场景", cx)),
             tags_input: tags_input.clone(),
-            text_content_input: cx.new(|cx| TextInput::new("输入一段 Meme 文字", cx)),
+            text_content_input: text_content_input.clone(),
             collector_text_input: cx.new(|cx| TextInput::new("快速收集一段文字", cx)),
             telegram_token_input,
             telegram_enabled,
+            telegram_applied_enabled: telegram_enabled,
             telegram_token,
             telegram_runtime: None,
+            telegram_runtime_generation: 0,
+            telegram_runtime_state: TelegramRuntimeState::Stopped,
+            telegram_token_error: None,
+            telegram_token_revealed: false,
             notice: None,
             opening_storage: false,
             analyzing_images: false,
@@ -461,6 +552,16 @@ impl MemelithView {
 
         cx.subscribe(&tags_input, |_, _, _: &TextChanged, cx| cx.notify())
             .detach();
+        cx.subscribe(&text_content_input, |_, _, _: &TextChanged, cx| cx.notify())
+            .detach();
+        cx.subscribe(
+            &view.telegram_token_input.clone(),
+            |view, _, _: &TextChanged, cx| {
+                view.telegram_token_error = None;
+                cx.notify();
+            },
+        )
+        .detach();
 
         match saved_storage {
             Ok(Some(path)) => view.activate_storage(path, false, cx),
@@ -512,58 +613,218 @@ impl MemelithView {
             }
         }
         if self.database.is_some() {
-            self.start_telegram_bot();
+            self.start_telegram_bot(cx);
         }
         self.opening_storage = false;
         cx.notify();
     }
 
     fn stop_telegram_bot(&mut self) {
+        self.telegram_runtime_generation = self.telegram_runtime_generation.wrapping_add(1);
         if let Some(runtime) = self.telegram_runtime.take() {
             runtime.stop();
         }
+        self.telegram_runtime_state = TelegramRuntimeState::Stopped;
     }
 
-    fn start_telegram_bot(&mut self) {
-        if !self.telegram_enabled || self.telegram_token.trim().is_empty() {
+    fn request_telegram_stop(&mut self) {
+        if let Some(runtime) = self.telegram_runtime.as_mut() {
+            runtime.request_stop();
+            self.telegram_runtime_state = TelegramRuntimeState::Stopping;
+        } else {
+            self.telegram_runtime_state = TelegramRuntimeState::Stopped;
+        }
+    }
+
+    fn start_telegram_bot(&mut self, cx: &mut Context<Self>) {
+        if !self.telegram_applied_enabled {
+            self.telegram_runtime_state = TelegramRuntimeState::Stopped;
+            return;
+        }
+        if self.telegram_token.trim().is_empty() {
+            let message = "未填写 Bot Token".to_owned();
+            self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+            self.telegram_token_error = Some(message.clone());
+            self.notice = Some(Notice::Error(format!("Telegram Bot 启动失败：{message}")));
             return;
         }
         let Some(storage_root) = self.storage_root.clone() else {
+            self.telegram_runtime_state = TelegramRuntimeState::Stopped;
             return;
         };
         let model_directory = match clip_model_directory() {
             Ok(directory) => directory,
             Err(error) => {
-                self.notice = Some(Notice::Error(format!("Telegram Bot 无法加载模型：{error}")));
+                let message = format!("Telegram Bot 无法加载模型：{error}");
+                self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+                self.notice = Some(Notice::Error(message));
                 return;
             }
         };
-        self.telegram_runtime = match telegram::TelegramBotHandle::start(
+        self.telegram_runtime_generation = self.telegram_runtime_generation.wrapping_add(1);
+        let generation = self.telegram_runtime_generation;
+        self.telegram_runtime_state = TelegramRuntimeState::Starting;
+        let (runtime, status_receiver) = match telegram::TelegramBotHandle::start(
             storage_root,
             self.telegram_token.clone(),
             model_directory,
         ) {
-            Ok(runtime) => Some(runtime),
+            Ok(runtime) => runtime,
             Err(error) => {
-                self.notice = Some(Notice::Error(format!(
-                    "无法启动 Telegram Bot 线程：{error}"
-                )));
-                None
+                let message = format!("无法启动 Telegram Bot 线程：{error}");
+                self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+                self.notice = Some(Notice::Error(message));
+                return;
             }
         };
+        self.telegram_runtime = Some(runtime);
+        self.observe_telegram_status(generation, status_receiver, cx);
+    }
+
+    fn observe_telegram_status(
+        &self,
+        generation: u64,
+        status_receiver: mpsc::Receiver<telegram::TelegramBotStatus>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                loop {
+                    match status_receiver.try_recv() {
+                        Ok(status) => {
+                            if this
+                                .update(cx, |view, cx| {
+                                    view.apply_telegram_status(generation, status, cx)
+                                })
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            let _ = this.update(cx, |view, cx| {
+                                view.handle_telegram_status_disconnect(generation, cx)
+                            });
+                            return;
+                        }
+                    }
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    fn apply_telegram_status(
+        &mut self,
+        generation: u64,
+        status: telegram::TelegramBotStatus,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.telegram_runtime_generation {
+            return;
+        }
+        match status {
+            telegram::TelegramBotStatus::Starting => {
+                if self.telegram_runtime_state != TelegramRuntimeState::Stopping {
+                    self.telegram_runtime_state = TelegramRuntimeState::Starting;
+                }
+            }
+            telegram::TelegramBotStatus::Running => {
+                if self.telegram_runtime_state != TelegramRuntimeState::Stopping {
+                    self.telegram_runtime_state = TelegramRuntimeState::Running;
+                }
+            }
+            telegram::TelegramBotStatus::Failed(message) => {
+                self.telegram_runtime.take();
+                if self.telegram_runtime_state == TelegramRuntimeState::Stopping {
+                    self.telegram_runtime_state = TelegramRuntimeState::Stopped;
+                    if self.telegram_enabled
+                        && self.telegram_applied_enabled
+                        && self.telegram_token_input.read(cx).text().trim() == self.telegram_token
+                    {
+                        self.start_telegram_bot(cx);
+                    }
+                } else {
+                    self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+                    self.notice = Some(Notice::Error(format!("Telegram Bot 启动失败：{message}")));
+                }
+            }
+            telegram::TelegramBotStatus::Stopped => {
+                self.telegram_runtime.take();
+                self.telegram_runtime_state = TelegramRuntimeState::Stopped;
+                if self.telegram_enabled
+                    && self.telegram_applied_enabled
+                    && self.telegram_token_input.read(cx).text().trim() == self.telegram_token
+                {
+                    self.start_telegram_bot(cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn handle_telegram_status_disconnect(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if generation != self.telegram_runtime_generation {
+            return;
+        }
+        match self.telegram_runtime_state {
+            TelegramRuntimeState::Starting | TelegramRuntimeState::Running => {
+                self.telegram_runtime.take();
+                let message = "Bot 线程意外退出".to_owned();
+                self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+                self.notice = Some(Notice::Error(format!("Telegram Bot 启动失败：{message}")));
+                cx.notify();
+            }
+            TelegramRuntimeState::Stopping => {
+                self.telegram_runtime.take();
+                self.telegram_runtime_state = TelegramRuntimeState::Stopped;
+                cx.notify();
+            }
+            TelegramRuntimeState::Stopped | TelegramRuntimeState::Failed(_) => {}
+        }
+    }
+
+    fn telegram_settings_dirty(&self, cx: &App) -> bool {
+        self.telegram_enabled != self.telegram_applied_enabled
+            || self.telegram_token_input.read(cx).text().trim() != self.telegram_token
+    }
+
+    fn telegram_status_text(&self, cx: &App) -> String {
+        let dirty = self.telegram_settings_dirty(cx);
+        let status = match &self.telegram_runtime_state {
+            TelegramRuntimeState::Stopped if !self.telegram_enabled && !dirty => {
+                "已停用".to_owned()
+            }
+            TelegramRuntimeState::Stopped => "已停止".to_owned(),
+            TelegramRuntimeState::Starting => "正在启动…".to_owned(),
+            TelegramRuntimeState::Running => "正在运行".to_owned(),
+            TelegramRuntimeState::Stopping => "正在停止…".to_owned(),
+            TelegramRuntimeState::Failed(message) => format!("启动失败：{message}"),
+        };
+        if dirty {
+            format!("{status} · 有未应用的更改")
+        } else {
+            status
+        }
     }
 
     fn apply_telegram_settings(
         &mut self,
         _: &gpui::ClickEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let token = self.telegram_token_input.read(cx).text().trim().to_owned();
         if self.telegram_enabled && token.is_empty() {
+            self.telegram_token_error = Some("启用 Bot 前需要填写 Token".to_owned());
             self.notice = Some(Notice::Error(
                 "启用 Telegram Bot 前请先填写 token".to_owned(),
             ));
+            self.telegram_token_input.focus_handle(cx).focus(window);
             cx.notify();
             return;
         }
@@ -573,14 +834,43 @@ impl MemelithView {
         };
         match settings::save_telegram_settings(&next) {
             Ok(()) => {
-                self.stop_telegram_bot();
+                let restart_required = !self.telegram_applied_enabled
+                    || self.telegram_token != token
+                    || matches!(
+                        self.telegram_runtime_state,
+                        TelegramRuntimeState::Stopped
+                            | TelegramRuntimeState::Stopping
+                            | TelegramRuntimeState::Failed(_)
+                    );
+                self.telegram_applied_enabled = self.telegram_enabled;
                 self.telegram_token = token;
-                self.start_telegram_bot();
-                self.notice = if self.telegram_enabled {
-                    Some(Notice::Success("Telegram Bot 设置已保存并启动".to_owned()))
+                self.telegram_token_error = None;
+                if self.telegram_enabled {
+                    if restart_required {
+                        self.stop_telegram_bot();
+                        self.start_telegram_bot(cx);
+                    }
+                    match self.telegram_runtime_state {
+                        TelegramRuntimeState::Starting => {
+                            self.notice = Some(Notice::Success(
+                                "Telegram 设置已保存，Bot 正在启动".to_owned(),
+                            ));
+                        }
+                        TelegramRuntimeState::Running => {
+                            self.notice = Some(Notice::Success(
+                                "Telegram 设置已保存，Bot 正在运行".to_owned(),
+                            ));
+                        }
+                        _ => {}
+                    }
                 } else {
-                    Some(Notice::Success("Telegram Bot 已停用".to_owned()))
-                };
+                    self.request_telegram_stop();
+                    self.notice = Some(Notice::Success(if self.telegram_runtime.is_some() {
+                        "Telegram 设置已保存，Bot 正在停止".to_owned()
+                    } else {
+                        "Telegram 设置已保存，Bot 已停用".to_owned()
+                    }));
+                }
             }
             Err(error) => {
                 self.notice = Some(Notice::Error(format!("无法保存 Telegram 设置：{error}")));
@@ -591,6 +881,31 @@ impl MemelithView {
 
     fn toggle_telegram(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.telegram_enabled = !self.telegram_enabled;
+        if !self.telegram_enabled {
+            self.telegram_token_error = None;
+            self.request_telegram_stop();
+        } else if self.telegram_applied_enabled
+            && self.telegram_token_input.read(cx).text().trim() == self.telegram_token
+            && matches!(
+                self.telegram_runtime_state,
+                TelegramRuntimeState::Stopped | TelegramRuntimeState::Failed(_)
+            )
+        {
+            self.start_telegram_bot(cx);
+        }
+        cx.notify();
+    }
+
+    fn toggle_telegram_token_visibility(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.telegram_token_revealed = !self.telegram_token_revealed;
+        self.telegram_token_input.update(cx, |input, cx| {
+            input.set_masked(!self.telegram_token_revealed, cx)
+        });
         cx.notify();
     }
 
@@ -1149,9 +1464,26 @@ impl MemelithView {
 
         self.collector_items.retain(|item| item.id != item_id);
         self.selected_collector_items.remove(&item_id);
+        let removed_image_index = self
+            .draft_contents
+            .iter()
+            .position(|content| content.collector_item_id() == Some(item_id))
+            .and_then(|removed_index| {
+                matches!(
+                    self.draft_contents[removed_index],
+                    DraftContent::Image { .. }
+                )
+                .then(|| {
+                    self.draft_contents[..removed_index]
+                        .iter()
+                        .filter(|content| matches!(content, DraftContent::Image { .. }))
+                        .count()
+                })
+            });
         let previous_draft_len = self.draft_contents.len();
         self.draft_contents
             .retain(|content| content.collector_item_id() != Some(item_id));
+        self.reconcile_active_draft_image_after_removal(removed_image_index);
         let removed_from_draft = self.draft_contents.len() != previous_draft_len;
         self.notice = match self.refresh_library() {
             Ok(()) if removed_from_draft => Some(Notice::Success(
@@ -1281,6 +1613,19 @@ impl MemelithView {
     }
 
     fn add_text_content(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.commit_text_content(cx);
+    }
+
+    fn confirm_text_content(
+        &mut self,
+        _: &ConfirmTextContent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_text_content(cx);
+    }
+
+    fn commit_text_content(&mut self, cx: &mut Context<Self>) {
         if self.draft_uses_collector() {
             self.notice = Some(Notice::Info(
                 "来自 Collector 的项目不能再混入新的草稿内容".to_owned(),
@@ -1300,6 +1645,52 @@ impl MemelithView {
         });
         self.text_content_input
             .update(cx, |input, cx| input.reset(cx));
+        self.composing_text = false;
+        self.notice = None;
+        cx.notify();
+    }
+
+    fn begin_text_composer(
+        &mut self,
+        _: &gpui::ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.draft_uses_collector() {
+            self.notice = Some(Notice::Info(
+                "来自 Collector 的项目不能再混入新的草稿内容".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        self.composing_text = true;
+        self.notice = None;
+        window.focus(&self.text_content_input.focus_handle(cx));
+        cx.notify();
+    }
+
+    fn cancel_text_composer(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_text_composer(cx);
+    }
+
+    fn cancel_text_composer_action(
+        &mut self,
+        _: &CancelTextComposer,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_text_composer(cx);
+    }
+
+    fn dismiss_text_composer(&mut self, cx: &mut Context<Self>) {
+        self.text_content_input
+            .update(cx, |input, cx| input.reset(cx));
+        self.composing_text = false;
         self.notice = None;
         cx.notify();
     }
@@ -1313,12 +1704,82 @@ impl MemelithView {
         if index >= self.draft_contents.len() {
             self.notice = Some(Notice::Error("要移除的内容已经不存在".to_owned()));
         } else {
+            let removed_image_index =
+                matches!(self.draft_contents[index], DraftContent::Image { .. }).then(|| {
+                    self.draft_contents[..index]
+                        .iter()
+                        .filter(|content| matches!(content, DraftContent::Image { .. }))
+                        .count()
+                });
             let removed = self.draft_contents.remove(index);
             if let Some(item_id) = removed.collector_item_id() {
                 self.selected_collector_items.remove(&item_id);
             }
+            self.reconcile_active_draft_image_after_removal(removed_image_index);
             self.notice = None;
         }
+        cx.notify();
+    }
+
+    fn reconcile_active_draft_image_after_removal(&mut self, removed_image_index: Option<usize>) {
+        let Some(removed_image_index) = removed_image_index else {
+            return;
+        };
+        let remaining_images = self
+            .draft_contents
+            .iter()
+            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .count();
+        if remaining_images == 0 {
+            self.active_draft_image = 0;
+        } else if removed_image_index < self.active_draft_image {
+            self.active_draft_image -= 1;
+        } else if self.active_draft_image >= remaining_images {
+            self.active_draft_image = remaining_images - 1;
+        }
+    }
+
+    fn show_previous_draft_image(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let image_count = self
+            .draft_contents
+            .iter()
+            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .count();
+        if image_count <= 1 {
+            return;
+        }
+        self.active_draft_image = if self.active_draft_image == 0 {
+            image_count - 1
+        } else {
+            self.active_draft_image - 1
+        };
+        cx.notify();
+    }
+
+    fn show_next_draft_image(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let image_count = self
+            .draft_contents
+            .iter()
+            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .count();
+        if image_count <= 1 {
+            return;
+        }
+        self.active_draft_image = if self.active_draft_image + 1 == image_count {
+            0
+        } else {
+            self.active_draft_image + 1
+        };
         cx.notify();
     }
 
@@ -1458,6 +1919,8 @@ impl MemelithView {
 
     fn reset_add_form(&mut self, cx: &mut Context<Self>) {
         self.draft_contents.clear();
+        self.active_draft_image = 0;
+        self.composing_text = false;
         for input in [
             &self.name_input,
             &self.description_input,
@@ -2057,70 +2520,31 @@ impl MemelithView {
             .draft_contents
             .iter()
             .any(|content| matches!(content, DraftContent::Image { .. }));
-        let choose_images_label = if self.analyzing_images {
-            "正在分析…"
+        let has_contents = !self.draft_contents.is_empty();
+        let mut content_group = glass_group().flex().flex_col();
+        if !has_contents && !self.composing_text {
+            content_group = content_group.child(self.render_empty_content_picker(cx));
         } else {
-            "选择图片"
-        };
-        let detect_characters_label = if self.detecting_characters {
-            "正在识别…"
-        } else {
-            "识别角色"
-        };
-        let mut content_group = glass_group().flex().flex_col().child(
-            group_row()
-                .child(
-                    div()
-                        .flex_1()
-                        .text_sm()
-                        .text_color(rgba(LABEL_2))
-                        .child("至少添加一张图片或一段文字"),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            glass_pill("detect-characters")
-                                .when(image_processing || !has_images, |button| {
-                                    button.opacity(0.45).cursor_default().tab_stop(false)
-                                })
-                                .when(!image_processing && has_images, |button| {
-                                    button.on_click(cx.listener(Self::detect_characters))
-                                })
-                                .child(detect_characters_label),
-                        )
-                        .child(
-                            glass_pill("choose-images")
-                                .when(image_processing || collector_draft, |button| {
-                                    button.opacity(0.45).cursor_default().tab_stop(false)
-                                })
-                                .when(!image_processing && !collector_draft, |button| {
-                                    button.on_click(cx.listener(Self::choose_images))
-                                })
-                                .child(choose_images_label),
-                        ),
-                ),
-        );
-        content_group = content_group.child(hairline()).child(
-            group_row()
-                .child(div().flex_1().child(self.text_content_input.clone()))
-                .child(
-                    glass_pill("add-text-content")
-                        .when(collector_draft, |button| {
-                            button.opacity(0.45).cursor_default().tab_stop(false)
-                        })
-                        .when(!collector_draft, |button| {
-                            button.on_click(cx.listener(Self::add_text_content))
-                        })
-                        .child("添加文字"),
-                ),
-        );
-        for (index, content) in self.draft_contents.iter().enumerate() {
-            content_group = content_group
-                .child(hairline())
-                .child(self.render_draft_content(index, content, cx));
+            if has_images {
+                content_group = content_group.child(self.render_draft_image_gallery(cx));
+            }
+            for (index, content) in self.draft_contents.iter().enumerate() {
+                let DraftContent::Text { text, .. } = content else {
+                    continue;
+                };
+                content_group = content_group
+                    .when(has_images || index > 0, |group| group.child(hairline()))
+                    .child(self.render_draft_text(index, text, cx));
+            }
+            if self.composing_text {
+                content_group = content_group
+                    .when(has_contents, |group| group.child(hairline()))
+                    .child(self.render_text_composer(cx));
+            } else if !collector_draft || has_images {
+                content_group = content_group
+                    .child(hairline())
+                    .child(self.render_content_toolbar(has_images, collector_draft, cx));
+            }
         }
 
         div()
@@ -2174,6 +2598,203 @@ impl MemelithView {
                         ),
                     ),
             )
+            .into_any_element()
+    }
+
+    fn render_empty_content_picker(&self, cx: &mut Context<Self>) -> AnyElement {
+        let processing = self.analyzing_images || self.detecting_characters || self.collecting;
+        let image_label = if self.analyzing_images {
+            "正在分析图片…"
+        } else {
+            "选择图片"
+        };
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id("choose-images-empty")
+                    .h(px(220.))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .bg(rgba(0x007aff0a))
+                    .text_color(rgb(ACCENT))
+                    .cursor_pointer()
+                    .tab_index(0)
+                    .focus(|style| style.bg(rgba(0x007aff16)))
+                    .hover(|style| style.bg(rgba(0x007aff10)))
+                    .active(|style| style.bg(rgba(0x007aff1c)))
+                    .when(processing, |button| {
+                        button.opacity(0.5).cursor_default().tab_stop(false)
+                    })
+                    .when(!processing, |button| {
+                        button.on_click(cx.listener(Self::choose_images))
+                    })
+                    .child(
+                        div()
+                            .size(px(48.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(rgba(0x007aff14))
+                            .text_size(px(28.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("＋"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(image_label),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgba(LABEL_3))
+                            .child("可一次选择多张"),
+                    ),
+            )
+            .child(hairline())
+            .child(
+                div()
+                    .h(px(52.))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(rgba(LABEL_2))
+                            .child("不需要图片？"),
+                    )
+                    .child(
+                        content_action_button("begin-text-empty", false)
+                            .when(processing, |button| {
+                                button.opacity(0.45).cursor_default().tab_stop(false)
+                            })
+                            .when(!processing, |button| {
+                                button.on_click(cx.listener(Self::begin_text_composer))
+                            })
+                            .child("Aa")
+                            .child("添加文字"),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_text_composer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let has_text = !self.text_content_input.read(cx).text().trim().is_empty();
+        div()
+            .w_full()
+            .px_4()
+            .py_4()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .key_context("TextComposer")
+            .on_action(cx.listener(Self::confirm_text_content))
+            .on_action(cx.listener(Self::cancel_text_composer_action))
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("添加文字"),
+            )
+            .child(self.text_content_input.clone())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        content_action_button("cancel-text-content", false)
+                            .on_click(cx.listener(Self::cancel_text_composer))
+                            .child("取消"),
+                    )
+                    .child(
+                        content_action_button("confirm-text-content", true)
+                            .when(!has_text, |button| {
+                                button.opacity(0.45).cursor_default().tab_stop(false)
+                            })
+                            .when(has_text, |button| {
+                                button.on_click(cx.listener(Self::add_text_content))
+                            })
+                            .child("添加"),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_content_toolbar(
+        &self,
+        has_images: bool,
+        collector_draft: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let processing = self.analyzing_images || self.detecting_characters || self.collecting;
+        let image_label = if self.analyzing_images {
+            "正在分析…"
+        } else {
+            "图片"
+        };
+        let character_label = if self.detecting_characters {
+            "正在识别…"
+        } else {
+            "识别角色"
+        };
+        div()
+            .min_h(px(52.))
+            .px_4()
+            .py_2()
+            .flex()
+            .items_center()
+            .gap_2()
+            .when(!collector_draft, |toolbar| {
+                toolbar
+                    .child(
+                        content_action_button("choose-more-images", true)
+                            .when(processing, |button| {
+                                button.opacity(0.45).cursor_default().tab_stop(false)
+                            })
+                            .when(!processing, |button| {
+                                button.on_click(cx.listener(Self::choose_images))
+                            })
+                            .child("＋")
+                            .child(image_label),
+                    )
+                    .child(
+                        content_action_button("begin-text-content", false)
+                            .when(processing, |button| {
+                                button.opacity(0.45).cursor_default().tab_stop(false)
+                            })
+                            .when(!processing, |button| {
+                                button.on_click(cx.listener(Self::begin_text_composer))
+                            })
+                            .child("Aa")
+                            .child("文字"),
+                    )
+            })
+            .child(div().flex_1())
+            .when(has_images, |toolbar| {
+                toolbar.child(
+                    content_action_button("detect-characters", false)
+                        .when(processing, |button| {
+                            button.opacity(0.45).cursor_default().tab_stop(false)
+                        })
+                        .when(!processing, |button| {
+                            button.on_click(cx.listener(Self::detect_characters))
+                        })
+                        .child(character_label),
+                )
+            })
             .into_any_element()
     }
 
@@ -2244,85 +2865,160 @@ impl MemelithView {
         window.focus(&self.tags_input.focus_handle(cx));
     }
 
-    fn render_draft_content(
-        &self,
-        index: usize,
-        content: &DraftContent,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let preview = match content {
-            DraftContent::Image {
-                path,
-                similar_images,
-                ..
-            } => {
-                let mut image_preview = div().flex().flex_col().gap_1().child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .size(px(44.))
-                                .flex_none()
-                                .rounded(px(10.))
-                                .overflow_hidden()
-                                .bg(rgba(0x3c3c4314))
-                                .child(img(path.clone()).size_full().object_fit(ObjectFit::Cover)),
-                        )
-                        .child(
-                            div().flex_1().text_sm().truncate().child(
-                                path.file_name()
-                                    .map(|name| name.to_string_lossy().into_owned())
-                                    .unwrap_or_else(|| path.display().to_string()),
-                            ),
-                        ),
-                );
-                if let Some(closest) = similar_images.first() {
-                    let similarity =
-                        ((1.0 - closest.cosine_distance).clamp(0.0, 1.0) * 100.0) as f64;
-                    let existing_name = closest.meme_name.as_deref().unwrap_or("未命名 Meme");
-                    let additional = similar_images.len().saturating_sub(1);
-                    let message = if additional == 0 {
-                        format!("疑似与「{existing_name}」重复 · 相似度 {similarity:.1}%")
-                    } else {
-                        format!(
-                            "疑似与「{existing_name}」重复 · 相似度 {similarity:.1}% · 另有 {additional} 项"
-                        )
-                    };
-                    image_preview = image_preview.child(
+    fn render_draft_image_gallery(&self, cx: &mut Context<Self>) -> AnyElement {
+        let image_count = self
+            .draft_contents
+            .iter()
+            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .count();
+        let (draft_index, path, similar_images) = self
+            .draft_contents
+            .iter()
+            .enumerate()
+            .filter_map(|(index, content)| match content {
+                DraftContent::Image {
+                    path,
+                    similar_images,
+                    ..
+                } => Some((index, path, similar_images)),
+                DraftContent::Text { .. } => None,
+            })
+            .nth(self.active_draft_image)
+            .expect("active draft image must refer to an existing image");
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+
+        let mut gallery = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .h(px(360.))
+                    .overflow_hidden()
+                    .bg(rgba(0x3c3c430a))
+                    .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
+                            .absolute()
+                            .inset_0()
+                            .p_4()
+                            .child(img(path.clone()).size_full().object_fit(ObjectFit::Contain)),
+                    )
+                    .when(image_count > 1, |viewport| {
+                        viewport.child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .px_3()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    carousel_button("previous-draft-image")
+                                        .on_click(cx.listener(Self::show_previous_draft_image))
+                                        .child("‹"),
+                                )
+                                .child(
+                                    carousel_button("next-draft-image")
+                                        .on_click(cx.listener(Self::show_next_draft_image))
+                                        .child("›"),
+                                ),
+                        )
+                    })
+                    .child(
+                        div().absolute().top(px(12.)).right(px(12.)).child(
+                            carousel_button("remove-active-draft-image")
+                                .when(self.detecting_characters, |button| {
+                                    button.opacity(0.45).cursor_default().tab_stop(false)
+                                })
+                                .when(!self.detecting_characters, |button| {
+                                    button.on_click(cx.listener(move |view, _, _, cx| {
+                                        view.remove_draft_content(draft_index, cx)
+                                    }))
+                                })
+                                .child("✕"),
+                        ),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(38.))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .truncate()
                             .text_xs()
-                            .text_color(rgb(WARNING))
-                            .child(div().size(px(6.)).rounded_full().bg(rgb(WARNING)))
-                            .child(message),
-                    );
-                }
-                image_preview.into_any_element()
-            }
-            DraftContent::Text { text, .. } => div()
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(
-                    div()
-                        .size(px(44.))
-                        .flex_none()
-                        .rounded(px(10.))
-                        .bg(rgba(0x5856d61f))
-                        .text_color(rgb(ACCENT))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .font_weight(FontWeight::BOLD)
-                        .child("Aa"),
+                            .text_color(rgba(LABEL_3))
+                            .child(file_name),
+                    )
+                    .when(image_count > 1, |footer| {
+                        footer.child(
+                            div()
+                                .flex_none()
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgba(LABEL_2))
+                                .child(format!("{} / {image_count}", self.active_draft_image + 1)),
+                        )
+                    }),
+            );
+
+        if let Some(closest) = similar_images.first() {
+            let similarity = ((1.0 - closest.cosine_distance).clamp(0.0, 1.0) * 100.0) as f64;
+            let existing_name = closest.meme_name.as_deref().unwrap_or("未命名 Meme");
+            let additional = similar_images.len().saturating_sub(1);
+            let message = if additional == 0 {
+                format!("疑似与「{existing_name}」重复 · 相似度 {similarity:.1}%")
+            } else {
+                format!(
+                    "疑似与「{existing_name}」重复 · 相似度 {similarity:.1}% · 另有 {additional} 项"
                 )
-                .child(div().flex_1().text_sm().truncate().child(text.clone()))
-                .into_any_element(),
-        };
+            };
+            gallery = gallery.child(
+                div()
+                    .px_4()
+                    .pb_3()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
+                    .text_color(rgb(WARNING))
+                    .child(div().size(px(6.)).rounded_full().bg(rgb(WARNING)))
+                    .child(message),
+            );
+        }
+
+        gallery.into_any_element()
+    }
+
+    fn render_draft_text(&self, index: usize, text: &str, cx: &mut Context<Self>) -> AnyElement {
+        let preview = div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .size(px(44.))
+                    .flex_none()
+                    .rounded(px(10.))
+                    .bg(rgba(0x5856d61f))
+                    .text_color(rgb(ACCENT))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .font_weight(FontWeight::BOLD)
+                    .child("Aa"),
+            )
+            .child(div().flex_1().text_sm().truncate().child(text.to_owned()));
         group_row()
             .id(("draft-content", index))
             .child(div().flex_1().min_w_0().child(preview))
@@ -2554,6 +3250,13 @@ impl MemelithView {
                 glass_group()
                     .child(
                         group_row()
+                            .id("telegram-enabled-row")
+                            .cursor_pointer()
+                            .tab_index(0)
+                            .focus(|style| style.bg(rgba(0x007aff12)))
+                            .hover(|style| style.bg(rgba(0x3c3c4308)))
+                            .active(|style| style.bg(rgba(0x3c3c4312)))
+                            .on_click(cx.listener(Self::toggle_telegram))
                             .child(
                                 div()
                                     .min_w_0()
@@ -2567,26 +3270,83 @@ impl MemelithView {
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .child("接收 Telegram 图片"),
                                     )
-                                    .child(div().text_xs().text_color(rgba(LABEL_2)).child(
-                                        if self.telegram_runtime.is_some() {
-                                            "Bot 正在运行"
-                                        } else {
-                                            "保存后按开关状态运行 Bot"
-                                        },
-                                    )),
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgba(LABEL_2))
+                                            .child(self.telegram_status_text(cx)),
+                                    ),
                             )
-                            .child(
-                                checkbox("telegram-enabled", self.telegram_enabled)
-                                    .on_click(cx.listener(Self::toggle_telegram)),
-                            ),
+                            .child(checkbox("telegram-enabled", self.telegram_enabled)),
                     )
                     .child(hairline())
-                    .child(field_row("Token", self.telegram_token_input.clone()))
+                    .child(
+                        group_row()
+                            .items_start()
+                            .child(
+                                div()
+                                    .w(px(64.))
+                                    .flex_none()
+                                    .pt_2()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Bot Token"),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .flex_1()
+                                                    .child(self.telegram_token_input.clone()),
+                                            )
+                                            .child(
+                                                glass_pill("toggle-telegram-token")
+                                                    .on_click(cx.listener(
+                                                        Self::toggle_telegram_token_visibility,
+                                                    ))
+                                                    .child(if self.telegram_token_revealed {
+                                                        "隐藏"
+                                                    } else {
+                                                        "显示"
+                                                    }),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgba(LABEL_3))
+                                            .child("由 BotFather 提供，保存在本机。"),
+                                    )
+                                    .when_some(
+                                        self.telegram_token_error.as_ref(),
+                                        |element, error| {
+                                            element.child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(rgb(DANGER))
+                                                    .child(error.clone()),
+                                            )
+                                        },
+                                    ),
+                            ),
+                    )
                     .child(
                         group_row().justify_end().child(
                             primary_pill("save-telegram-settings")
                                 .on_click(cx.listener(Self::apply_telegram_settings))
-                                .child("保存并应用"),
+                                .child("保存 Telegram 设置"),
                         ),
                     ),
             );
@@ -2929,6 +3689,8 @@ fn main() {
         cx.bind_keys([
             KeyBinding::new("tab", FocusNext, None),
             KeyBinding::new("shift-tab", FocusPrevious, None),
+            KeyBinding::new("enter", ConfirmTextContent, Some("TextComposer")),
+            KeyBinding::new("escape", CancelTextComposer, Some("TextComposer")),
         ]);
         let saved_storage = settings::load_storage_root();
         let saved_telegram = settings::load_telegram_settings();
