@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use crate::{
     CollectorContent, CollectorDuplicate, CollectorDuplicateSource, CollectorDuplicateTarget,
-    CollectorItem, EffectiveTag, EmbeddingProvider, Error, ImageFormat, Meme, MemeContent,
-    MemeImage, MemePack, MemeText, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack,
-    NewTag, Result, SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
+    CollectorItem, EffectiveTag, EmbeddingProvider, Error, ImageDuplicate, ImageFormat, Meme,
+    MemeContent, MemeImage, MemePack, MemeText, NewMeme, NewMemeContent, NewMemeFromCollector,
+    NewMemePack, NewTag, Result, SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
 };
 
 const SCHEMA_VERSION: i64 = 2;
@@ -162,6 +162,104 @@ impl MemeDatabase {
             }
         }
         matches.sort_by(|left, right| left.cosine_distance.total_cmp(&right.cosine_distance));
+        Ok(matches)
+    }
+
+    /// Finds exact and visually similar images without changing the database.
+    ///
+    /// This is used by integrations that need to ask for confirmation before
+    /// inserting a new Collector item. Meme contents and existing Collector
+    /// images are both considered candidates.
+    pub fn find_image_duplicates(
+        &mut self,
+        source_path: impl AsRef<Path>,
+        max_cosine_distance: f32,
+    ) -> Result<Vec<ImageDuplicate>> {
+        if !max_cosine_distance.is_finite() || !(0.0..=2.0).contains(&max_cosine_distance) {
+            return Err(Error::InvalidCosineDistanceThreshold(max_cosine_distance));
+        }
+
+        let analyzed = self.analyze_image_source(source_path.as_ref().to_path_buf())?;
+        let mut candidates = Vec::new();
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT c.id, c.meme_id, m.name, c.relative_path, c.content_hash, c.embedding
+                 FROM meme_contents c
+                 JOIN memes m ON m.id = c.meme_id
+                 WHERE c.kind = 'image'",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    uuid_from_column(row, 0)?,
+                    CollectorDuplicateSource::Meme,
+                    Some(uuid_from_column(row, 1)?),
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                    row.get::<_, Vec<u8>>(5)?,
+                ))
+            })?;
+            candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
+        }
+        {
+            let mut statement = self.connection.prepare(
+                "SELECT id, relative_path, content_hash, embedding
+                 FROM collector_items
+                 WHERE kind = 'image'",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    uuid_from_column(row, 0)?,
+                    CollectorDuplicateSource::Collector,
+                    None,
+                    None,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            })?;
+            candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
+        }
+
+        let mut matches = Vec::new();
+        for (content_id, source, meme_id, meme_name, relative_path, content_hash, embedding) in
+            candidates
+        {
+            let relative_path = PathBuf::from(relative_path);
+            let absolute_path = resolve_media_path(&self.storage_root, &relative_path)?;
+            if !absolute_path.is_file() {
+                return Err(Error::MissingMedia(absolute_path));
+            }
+            let cosine_distance = if content_hash == analyzed.content_hash {
+                None
+            } else {
+                let distance = cosine_distance_between_encoded_embeddings(
+                    &analyzed.embedding,
+                    &embedding,
+                    self.embedding_dimension,
+                )?;
+                if distance > max_cosine_distance {
+                    continue;
+                }
+                Some(distance)
+            };
+            matches.push(ImageDuplicate {
+                content_id,
+                source,
+                meme_id,
+                meme_name,
+                relative_path,
+                cosine_distance,
+            });
+        }
+        matches.sort_by(
+            |left, right| match (left.cosine_distance, right.cosine_distance) {
+                (None, None) => left.content_id.cmp(&right.content_id),
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (Some(left), Some(right)) => left.total_cmp(&right),
+            },
+        );
         Ok(matches)
     }
 

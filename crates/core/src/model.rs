@@ -54,6 +54,21 @@ pub struct SimilarMemeImage {
     pub cosine_distance: f32,
 }
 
+/// An image already present in the library that matches an incoming image.
+///
+/// The source can be either a saved Meme or another Collector item. Exact
+/// content matches have no cosine distance; similarity matches include the
+/// distance used by the configured threshold.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageDuplicate {
+    pub content_id: Uuid,
+    pub source: CollectorDuplicateSource,
+    pub meme_id: Option<Uuid>,
+    pub meme_name: Option<String>,
+    pub relative_path: PathBuf,
+    pub cosine_distance: Option<f32>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemeText {
     pub id: Uuid,

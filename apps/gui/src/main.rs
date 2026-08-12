@@ -1,5 +1,6 @@
 mod input;
 mod settings;
+mod telegram;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -399,6 +400,10 @@ struct MemelithView {
     tags_input: Entity<TextInput>,
     text_content_input: Entity<TextInput>,
     collector_text_input: Entity<TextInput>,
+    telegram_token_input: Entity<TextInput>,
+    telegram_enabled: bool,
+    telegram_token: String,
+    telegram_runtime: Option<telegram::TelegramBotHandle>,
     notice: Option<Notice>,
     opening_storage: bool,
     analyzing_images: bool,
@@ -411,9 +416,19 @@ struct MemelithView {
 impl MemelithView {
     fn new(
         saved_storage: Result<Option<PathBuf>, settings::SettingsError>,
+        saved_telegram: Result<settings::TelegramSettings, settings::SettingsError>,
         cx: &mut Context<Self>,
     ) -> Self {
         let tags_input = cx.new(|cx| TextInput::new("用逗号分隔，例如：猫猫, 反应", cx));
+        let telegram_token_input = cx.new(|cx| TextInput::new("粘贴 BotFather 提供的 token", cx));
+        let (telegram_enabled, telegram_token, telegram_error) = match saved_telegram {
+            Ok(settings) => (settings.enabled, settings.token, None),
+            Err(error) => (false, String::new(), Some(error)),
+        };
+        if !telegram_token.is_empty() {
+            let token = telegram_token.clone();
+            telegram_token_input.update(cx, |input, cx| input.set_text(token, cx));
+        }
         let mut view = Self {
             database: None,
             waifu_sensor: None,
@@ -431,6 +446,10 @@ impl MemelithView {
             tags_input: tags_input.clone(),
             text_content_input: cx.new(|cx| TextInput::new("输入一段 Meme 文字", cx)),
             collector_text_input: cx.new(|cx| TextInput::new("快速收集一段文字", cx)),
+            telegram_token_input,
+            telegram_enabled,
+            telegram_token,
+            telegram_runtime: None,
             notice: None,
             opening_storage: false,
             analyzing_images: false,
@@ -450,10 +469,14 @@ impl MemelithView {
                 view.notice = Some(Notice::Error(format!("无法读取上次的存储位置：{error}")));
             }
         }
+        if let Some(error) = telegram_error {
+            view.notice = Some(Notice::Error(format!("无法读取 Telegram 设置：{error}")));
+        }
         view
     }
 
     fn activate_storage(&mut self, path: PathBuf, persist: bool, cx: &mut Context<Self>) {
+        self.stop_telegram_bot();
         self.opening_storage = true;
         self.notice = None;
         cx.notify();
@@ -488,7 +511,86 @@ impl MemelithView {
                 self.notice = Some(Notice::Error(error.to_string()));
             }
         }
+        if self.database.is_some() {
+            self.start_telegram_bot();
+        }
         self.opening_storage = false;
+        cx.notify();
+    }
+
+    fn stop_telegram_bot(&mut self) {
+        if let Some(runtime) = self.telegram_runtime.take() {
+            runtime.stop();
+        }
+    }
+
+    fn start_telegram_bot(&mut self) {
+        if !self.telegram_enabled || self.telegram_token.trim().is_empty() {
+            return;
+        }
+        let Some(storage_root) = self.storage_root.clone() else {
+            return;
+        };
+        let model_directory = match clip_model_directory() {
+            Ok(directory) => directory,
+            Err(error) => {
+                self.notice = Some(Notice::Error(format!("Telegram Bot 无法加载模型：{error}")));
+                return;
+            }
+        };
+        self.telegram_runtime = match telegram::TelegramBotHandle::start(
+            storage_root,
+            self.telegram_token.clone(),
+            model_directory,
+        ) {
+            Ok(runtime) => Some(runtime),
+            Err(error) => {
+                self.notice = Some(Notice::Error(format!(
+                    "无法启动 Telegram Bot 线程：{error}"
+                )));
+                None
+            }
+        };
+    }
+
+    fn apply_telegram_settings(
+        &mut self,
+        _: &gpui::ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let token = self.telegram_token_input.read(cx).text().trim().to_owned();
+        if self.telegram_enabled && token.is_empty() {
+            self.notice = Some(Notice::Error(
+                "启用 Telegram Bot 前请先填写 token".to_owned(),
+            ));
+            cx.notify();
+            return;
+        }
+        let next = settings::TelegramSettings {
+            enabled: self.telegram_enabled,
+            token: token.clone(),
+        };
+        match settings::save_telegram_settings(&next) {
+            Ok(()) => {
+                self.stop_telegram_bot();
+                self.telegram_token = token;
+                self.start_telegram_bot();
+                self.notice = if self.telegram_enabled {
+                    Some(Notice::Success("Telegram Bot 设置已保存并启动".to_owned()))
+                } else {
+                    Some(Notice::Success("Telegram Bot 已停用".to_owned()))
+                };
+            }
+            Err(error) => {
+                self.notice = Some(Notice::Error(format!("无法保存 Telegram 设置：{error}")));
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_telegram(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.telegram_enabled = !self.telegram_enabled;
         cx.notify();
     }
 
@@ -1586,7 +1688,10 @@ impl MemelithView {
                 "全部 Meme".into(),
                 format!("共 {} 个，不按 MemePack 分组", self.memes.len()).into(),
             ),
-            Page::Settings => ("设置".into(), "管理本地存储位置".to_owned().into()),
+            Page::Settings => (
+                "设置".into(),
+                "管理本地存储与 Telegram Bot".to_owned().into(),
+            ),
         };
         div()
             .flex_none()
@@ -2393,6 +2498,99 @@ impl MemelithView {
             .as_ref()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "未选择".to_owned());
+        let storage_section = div().flex().flex_col().child(section_header("存储")).child(
+            glass_group().child(
+                group_row()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("存储位置"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgba(LABEL_2))
+                                    .truncate()
+                                    .child(storage),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgba(LABEL_3))
+                                    .child("更换位置会打开另一个资料库，不会自动迁移当前数据。"),
+                            ),
+                    )
+                    .child(
+                        glass_pill("change-storage")
+                            .when(
+                                self.analyzing_images
+                                    || self.detecting_characters
+                                    || self.collecting,
+                                |button| button.opacity(0.45).cursor_default().tab_stop(false),
+                            )
+                            .when(
+                                !self.analyzing_images
+                                    && !self.detecting_characters
+                                    && !self.collecting,
+                                |button| button.on_click(cx.listener(Self::choose_storage)),
+                            )
+                            .child("更换位置"),
+                    ),
+            ),
+        );
+        let telegram_section = div()
+            .flex()
+            .flex_col()
+            .child(section_header("Telegram Bot"))
+            .child(
+                glass_group()
+                    .child(
+                        group_row()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child("接收 Telegram 图片"),
+                                    )
+                                    .child(div().text_xs().text_color(rgba(LABEL_2)).child(
+                                        if self.telegram_runtime.is_some() {
+                                            "Bot 正在运行"
+                                        } else {
+                                            "保存后按开关状态运行 Bot"
+                                        },
+                                    )),
+                            )
+                            .child(
+                                checkbox("telegram-enabled", self.telegram_enabled)
+                                    .on_click(cx.listener(Self::toggle_telegram)),
+                            ),
+                    )
+                    .child(hairline())
+                    .child(field_row("Token", self.telegram_token_input.clone()))
+                    .child(
+                        group_row().justify_end().child(
+                            primary_pill("save-telegram-settings")
+                                .on_click(cx.listener(Self::apply_telegram_settings))
+                                .child("保存并应用"),
+                        ),
+                    ),
+            );
+
         div()
             .size_full()
             .id("settings-page-scroll")
@@ -2405,61 +2603,18 @@ impl MemelithView {
                     .max_w(px(720.))
                     .flex()
                     .flex_col()
-                    .child(section_header("存储"))
-                    .child(
-                        glass_group().child(
-                            group_row()
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .flex_1()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child("存储位置"),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(rgba(LABEL_2))
-                                                .truncate()
-                                                .child(storage),
-                                        )
-                                        .child(div().text_xs().text_color(rgba(LABEL_3)).child(
-                                            "更换位置会打开另一个资料库，不会自动迁移当前数据。",
-                                        )),
-                                )
-                                .child(
-                                    glass_pill("change-storage")
-                                        .when(
-                                            self.analyzing_images
-                                                || self.detecting_characters
-                                                || self.collecting,
-                                            |button| {
-                                                button
-                                                    .opacity(0.45)
-                                                    .cursor_default()
-                                                    .tab_stop(false)
-                                            },
-                                        )
-                                        .when(
-                                            !self.analyzing_images
-                                                && !self.detecting_characters
-                                                && !self.collecting,
-                                            |button| {
-                                                button.on_click(cx.listener(Self::choose_storage))
-                                            },
-                                        )
-                                        .child("更换位置"),
-                                ),
-                        ),
-                    ),
+                    .gap_6()
+                    .children([storage_section, telegram_section]),
             )
             .into_any_element()
+    }
+}
+
+impl Drop for MemelithView {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.telegram_runtime.take() {
+            runtime.stop();
+        }
     }
 }
 
@@ -2601,13 +2756,7 @@ fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
 }
 
 fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
-    let builtin_model = BuiltinModel::ChineseClipVitBasePatch16;
-    let model_directory = match macos_bundle_resources_directory()? {
-        Some(resources) => resources
-            .join(BUNDLED_CLIP_MODELS_DIRECTORY)
-            .join(builtin_model.directory_name()),
-        None => builtin_model.directory(),
-    };
+    let model_directory = clip_model_directory()?;
     let model = ClipModel::load(model_directory, ExecutionPolicy::Auto)?;
     let mut database = MemeDatabase::open(storage_root, model)?;
     let packs = database.list_meme_packs()?;
@@ -2634,6 +2783,16 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
         pack_names: packs.into_iter().map(|pack| (pack.id, pack.name)).collect(),
         tags,
         collector_items,
+    })
+}
+
+fn clip_model_directory() -> Result<PathBuf, UiError> {
+    let builtin_model = BuiltinModel::ChineseClipVitBasePatch16;
+    Ok(match macos_bundle_resources_directory()? {
+        Some(resources) => resources
+            .join(BUNDLED_CLIP_MODELS_DIRECTORY)
+            .join(builtin_model.directory_name()),
+        None => builtin_model.directory(),
     })
 }
 
@@ -2772,6 +2931,7 @@ fn main() {
             KeyBinding::new("shift-tab", FocusPrevious, None),
         ]);
         let saved_storage = settings::load_storage_root();
+        let saved_telegram = settings::load_telegram_settings();
         let bounds = Bounds::centered(None, size(px(1120.), px(760.)), cx);
         cx.open_window(
             WindowOptions {
@@ -2786,7 +2946,7 @@ fn main() {
                 }),
                 ..Default::default()
             },
-            |_, cx| cx.new(|cx| MemelithView::new(saved_storage, cx)),
+            |_, cx| cx.new(|cx| MemelithView::new(saved_storage, saved_telegram, cx)),
         )
         .expect("failed to open the Memelith window");
         cx.activate(true);

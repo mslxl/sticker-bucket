@@ -10,9 +10,9 @@ pub use embedding::{EmbeddingProvider, EmbeddingProviderError};
 pub use error::{Error, Result};
 pub use model::{
     CollectorContent, CollectorDuplicate, CollectorDuplicateSource, CollectorDuplicateTarget,
-    CollectorItem, EffectiveTag, ImageFormat, Meme, MemeContent, MemeImage, MemePack, MemeText,
-    NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag, SimilarMemeImage, Tag,
-    UpdateMemeMetadata, UpdateMemePack,
+    CollectorItem, EffectiveTag, ImageDuplicate, ImageFormat, Meme, MemeContent, MemeImage,
+    MemePack, MemeText, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag,
+    SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
 };
 
 pub const APPLICATION_NAME: &str = "Memelith";

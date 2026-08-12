@@ -3,10 +3,21 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use thiserror::Error;
 
 const SETTINGS_DIRECTORY: &str = "memelith";
 const STORAGE_FILE: &str = "storage-root";
+const TELEGRAM_ENABLED_FILE: &str = "telegram-enabled";
+const TELEGRAM_TOKEN_FILE: &str = "telegram-token";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TelegramSettings {
+    pub enabled: bool,
+    pub token: String,
+}
 
 #[derive(Debug, Error)]
 pub enum SettingsError {
@@ -28,10 +39,60 @@ pub fn save_storage_root(storage_root: &Path) -> Result<(), SettingsError> {
     save_storage_root_to(&settings_file()?, storage_root)
 }
 
+pub fn load_telegram_settings() -> Result<TelegramSettings, SettingsError> {
+    let directory = settings_directory()?;
+    let enabled = match fs::read_to_string(directory.join(TELEGRAM_ENABLED_FILE)) {
+        Ok(raw) => match raw.trim() {
+            "1" | "true" => true,
+            "0" | "false" => false,
+            value => {
+                return Err(SettingsError::Io(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("saved Telegram enabled value `{value}` is invalid"),
+                )));
+            }
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    let token = match fs::read_to_string(directory.join(TELEGRAM_TOKEN_FILE)) {
+        Ok(raw) => raw.trim().to_owned(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(TelegramSettings { enabled, token })
+}
+
+pub fn save_telegram_settings(settings: &TelegramSettings) -> Result<(), SettingsError> {
+    let directory = settings_directory()?;
+    fs::create_dir_all(&directory)?;
+    fs::write(
+        directory.join(TELEGRAM_ENABLED_FILE),
+        if settings.enabled {
+            "true\n"
+        } else {
+            "false\n"
+        },
+    )?;
+    let token_path = directory.join(TELEGRAM_TOKEN_FILE);
+    fs::write(&token_path, format!("{}\n", settings.token.trim()))?;
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&token_path)?.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(token_path, permissions)?;
+    }
+    Ok(())
+}
+
 fn settings_file() -> Result<PathBuf, SettingsError> {
+    Ok(settings_directory()?.join(STORAGE_FILE))
+}
+
+fn settings_directory() -> Result<PathBuf, SettingsError> {
     let configuration =
         dirs::config_dir().ok_or(SettingsError::ConfigurationDirectoryUnavailable)?;
-    Ok(configuration.join(SETTINGS_DIRECTORY).join(STORAGE_FILE))
+    Ok(configuration.join(SETTINGS_DIRECTORY))
 }
 
 fn load_storage_root_from(path: &Path) -> Result<Option<PathBuf>, SettingsError> {
