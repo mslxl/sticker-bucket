@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::Cursor,
     path::{Path, PathBuf},
@@ -52,6 +52,12 @@ enum TelegramError {
 
     #[error("invalid callback data")]
     InvalidCallback,
+
+    #[error("callback is not authorized for this operation")]
+    UnauthorizedCallback,
+
+    #[error("Telegram message did not include a sender")]
+    MissingSender,
 }
 
 pub struct TelegramBotHandle {
@@ -112,6 +118,8 @@ struct BotState {
     database: Mutex<MemeDatabase>,
     storage_root: PathBuf,
     pending: Mutex<HashMap<Uuid, PendingOperation>>,
+    pending_deletions: Mutex<HashSet<(i64, i64)>>,
+    workers: Mutex<Vec<JoinHandle<()>>>,
 }
 
 #[derive(Clone)]
@@ -119,6 +127,7 @@ struct PendingOperation {
     id: Uuid,
     chat_id: i64,
     message_id: i64,
+    user_id: i64,
     source_path: PathBuf,
     similar_paths: Vec<PathBuf>,
     page: usize,
@@ -296,6 +305,8 @@ fn run_bot(
         database: Mutex::new(database),
         storage_root,
         pending: Mutex::new(HashMap::new()),
+        pending_deletions: Mutex::new(HashSet::new()),
+        workers: Mutex::new(Vec::new()),
     });
 
     let mut offset = 0_i64;
@@ -303,19 +314,39 @@ fn run_bot(
         if stop_receiver.try_recv().is_ok() {
             break;
         }
+        reap_finished_workers(&state);
+        retry_pending_deletions(&state);
         match state.api.get_updates(offset) {
             Ok(updates) => {
                 for update in updates {
                     offset = update.update_id.saturating_add(1);
-                    let state = Arc::clone(&state);
-                    thread::Builder::new()
+                    let worker_state = Arc::clone(&state);
+                    let worker = thread::Builder::new()
                         .name("memelith-telegram-update".to_owned())
                         .spawn(move || {
-                            if let Err(error) = handle_update(state, update) {
+                            if let Err(error) = handle_update(worker_state, update) {
                                 eprintln!("Memelith Telegram update failed: {error}");
                             }
                         })
-                        .map_err(|error| TelegramError::Io(std::io::Error::other(error)))?;
+                        .map_err(|error| TelegramError::Io(std::io::Error::other(error)));
+                    let worker = match worker {
+                        Ok(worker) => worker,
+                        Err(error) => {
+                            shutdown_state(&state);
+                            return Err(error);
+                        }
+                    };
+                    let mut workers = match state.workers.lock() {
+                        Ok(workers) => workers,
+                        Err(_) => {
+                            if worker.join().is_err() {
+                                eprintln!("Memelith Telegram update worker panicked");
+                            }
+                            shutdown_state(&state);
+                            return Err(TelegramError::Api("worker lock was poisoned".to_owned()));
+                        }
+                    };
+                    workers.push(worker);
                 }
             }
             Err(error) => {
@@ -326,7 +357,60 @@ fn run_bot(
             }
         }
     }
+    shutdown_state(&state);
     Ok(())
+}
+
+fn shutdown_state(state: &Arc<BotState>) {
+    let workers = match state.workers.lock() {
+        Ok(mut workers) => std::mem::take(&mut *workers),
+        Err(_) => {
+            eprintln!("Memelith Telegram failed to acquire worker lock during shutdown");
+            Vec::new()
+        }
+    };
+    for worker in workers {
+        if worker.join().is_err() {
+            eprintln!("Memelith Telegram update worker panicked during shutdown");
+        }
+    }
+
+    match state.pending.lock() {
+        Ok(mut pending) => {
+            for operation in pending.drain().map(|(_, operation)| operation) {
+                remove_temp_file(&operation.source_path);
+            }
+        }
+        Err(_) => {
+            eprintln!("Memelith Telegram failed to acquire pending lock during shutdown");
+        }
+    }
+}
+
+fn reap_finished_workers(state: &Arc<BotState>) {
+    let mut finished = Vec::new();
+    match state.workers.lock() {
+        Ok(mut workers) => {
+            let mut active = Vec::with_capacity(workers.len());
+            for worker in workers.drain(..) {
+                if worker.is_finished() {
+                    finished.push(worker);
+                } else {
+                    active.push(worker);
+                }
+            }
+            *workers = active;
+        }
+        Err(_) => {
+            eprintln!("Memelith Telegram failed to acquire worker lock while reaping");
+            return;
+        }
+    }
+    for worker in finished {
+        if worker.join().is_err() {
+            eprintln!("Memelith Telegram update worker panicked");
+        }
+    }
 }
 
 fn handle_update(state: Arc<BotState>, update: Update) -> Result<(), TelegramError> {
@@ -356,42 +440,41 @@ fn handle_photo(
     message: Message,
     photo: PhotoSize,
 ) -> Result<(), TelegramError> {
+    let sender = message.from.as_ref().ok_or(TelegramError::MissingSender)?;
     let file = state.api.get_file(&photo.file_id)?;
     let file_path = file.file_path.ok_or(TelegramError::MissingFilePath)?;
     let bytes = state.api.download_file(&file_path)?;
     let incoming_directory = state.storage_root.join(".telegram/incoming");
     fs::create_dir_all(&incoming_directory)?;
     let source_path = incoming_directory.join(format!("{}.image", Uuid::new_v4()));
-    fs::write(&source_path, bytes)?;
+    let mut source_file = TempFileGuard::new(source_path);
+    fs::write(source_file.path(), bytes)?;
 
     let duplicate_result = {
         let mut database = state
             .database
             .lock()
             .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
-        database.find_image_duplicates(&source_path, COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE)
+        database.find_image_duplicates(source_file.path(), COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE)
     };
-    let duplicates = match duplicate_result {
-        Ok(duplicates) => duplicates,
-        Err(error) => {
-            remove_temp_file(&source_path);
-            return Err(error.into());
-        }
-    };
+    let duplicates = duplicate_result?;
 
     if duplicates.is_empty() {
         let mut database = state
             .database
             .lock()
             .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
-        database.collect_image(&source_path)?;
-        log_api_result(
-            "delete collected source message",
-            state
-                .api
-                .delete_message(message.chat.id, message.message_id),
-        );
-        fs::remove_file(source_path)?;
+        database.collect_image(source_file.path())?;
+        drop(database);
+        if !delete_message_or_queue(&state, message.chat.id, message.message_id)? {
+            log_api_result(
+                "send source deletion warning",
+                state.api.send_message(
+                    message.chat.id,
+                    "图片已添加，但原消息暂时无法删除，机器人会自动重试。",
+                ),
+            );
+        }
         return Ok(());
     }
 
@@ -407,7 +490,6 @@ fn handle_photo(
     {
         Ok(paths) => paths,
         Err(error) => {
-            remove_temp_file(&source_path);
             return Err(error.into());
         }
     };
@@ -416,46 +498,44 @@ fn handle_photo(
         id: operation_id,
         chat_id: message.chat.id,
         message_id: 0,
-        source_path,
+        user_id: sender.id,
+        source_path: source_file.path().to_owned(),
         similar_paths,
         page: 0,
     };
-    let preview = match render_preview(&pending) {
-        Ok(preview) => preview,
-        Err(error) => {
-            remove_temp_file(&pending.source_path);
-            return Err(error);
-        }
-    };
+    let preview = render_preview(&pending)?;
     let caption = preview_caption(&pending, duplicates.len());
     let markup = preview_markup(&pending);
     let sent = state
         .api
-        .send_preview(message.chat.id, preview, &caption, &markup)
-        .inspect_err(|_| {
-            remove_temp_file(&pending.source_path);
-        })?;
+        .send_preview(message.chat.id, preview, &caption, &markup)?;
     let mut pending = pending;
     pending.message_id = sent.message_id;
-    state
+    let pending_result = state
         .pending
         .lock()
-        .map_err(|_| TelegramError::Api("pending operation lock was poisoned".to_owned()))?
-        .insert(operation_id, pending);
-    log_api_result(
-        "delete duplicate source message",
-        state
-            .api
-            .delete_message(message.chat.id, message.message_id),
-    );
+        .map_err(|_| TelegramError::Api("pending operation lock was poisoned".to_owned()));
+    let mut operations = match pending_result {
+        Ok(operations) => operations,
+        Err(error) => {
+            if let Err(delete_error) =
+                delete_message_or_queue(&state, sent.chat.id, sent.message_id)
+            {
+                eprintln!(
+                    "Memelith Telegram failed to clean up orphaned confirmation message: {delete_error}"
+                );
+            }
+            return Err(error);
+        }
+    };
+    operations.insert(operation_id, pending);
+    drop(operations);
+    source_file.disarm();
+    delete_message_or_queue(&state, message.chat.id, message.message_id)?;
     Ok(())
 }
 
 fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), TelegramError> {
-    log_api_result(
-        "answer callback query",
-        state.api.answer_callback(&callback.id, None),
-    );
     let data = callback
         .data
         .as_deref()
@@ -465,6 +545,48 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
     if action != "page" && action != "keep" && action != "discard" {
         return Err(TelegramError::InvalidCallback);
     }
+    if action != "page" && page.is_some() {
+        return Err(TelegramError::InvalidCallback);
+    }
+
+    let callback_message = match callback.message.as_ref() {
+        Some(message) => message,
+        None => {
+            log_api_result(
+                "answer callback query without message",
+                state
+                    .api
+                    .answer_callback(&callback.id, Some("此按钮已失效。")),
+            );
+            return Err(TelegramError::UnauthorizedCallback);
+        }
+    };
+    let pending_snapshot = {
+        let operations = state
+            .pending
+            .lock()
+            .map_err(|_| TelegramError::Api("pending operation lock was poisoned".to_owned()))?;
+        operations
+            .get(&operation_id)
+            .cloned()
+            .ok_or(TelegramError::InvalidCallback)?
+    };
+    if callback.from.id != pending_snapshot.user_id
+        || callback_message.chat.id != pending_snapshot.chat_id
+        || callback_message.message_id != pending_snapshot.message_id
+    {
+        log_api_result(
+            "answer unauthorized callback query",
+            state
+                .api
+                .answer_callback(&callback.id, Some("此按钮不属于你的操作。")),
+        );
+        return Err(TelegramError::UnauthorizedCallback);
+    }
+    log_api_result(
+        "answer callback query",
+        state.api.answer_callback(&callback.id, None),
+    );
 
     if action == "page" {
         let pending = {
@@ -498,17 +620,19 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
         .remove(&operation_id)
         .ok_or(TelegramError::InvalidCallback)?;
     if action == "keep" {
-        let mut database = state
-            .database
-            .lock()
-            .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
-        if let Err(error) = database.collect_image(&pending.source_path) {
-            drop(database);
+        let collect_result = match state.database.lock() {
+            Ok(mut database) => database.collect_image(&pending.source_path),
+            Err(_) => Err(memelith_core::Error::InvalidDatabase(
+                "database lock was poisoned".to_owned(),
+            )),
+        };
+        if let Err(error) = collect_result {
+            let pending_id = pending.id;
             state
                 .pending
                 .lock()
                 .map_err(|_| TelegramError::Api("pending operation lock was poisoned".to_owned()))?
-                .insert(pending.id, pending.clone());
+                .insert(pending_id, pending.clone());
             log_api_result(
                 "send Collector failure message",
                 state
@@ -521,12 +645,7 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
         return Err(TelegramError::InvalidCallback);
     }
     remove_temp_file(&pending.source_path);
-    log_api_result(
-        "delete duplicate confirmation message",
-        state
-            .api
-            .delete_message(pending.chat_id, pending.message_id),
-    );
+    delete_message_or_queue(&state, pending.chat_id, pending.message_id)?;
     Ok(())
 }
 
@@ -649,6 +768,67 @@ fn log_api_result<T>(operation: &str, result: Result<T, TelegramError>) {
     }
 }
 
+fn delete_message_or_queue(
+    state: &BotState,
+    chat_id: i64,
+    message_id: i64,
+) -> Result<bool, TelegramError> {
+    match state.api.delete_message(chat_id, message_id) {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            queue_message_deletion(state, chat_id, message_id)?;
+            eprintln!("Memelith Telegram deleteMessage returned false for {chat_id}:{message_id}");
+            Ok(false)
+        }
+        Err(error) => {
+            queue_message_deletion(state, chat_id, message_id)?;
+            eprintln!("Memelith Telegram failed to delete {chat_id}:{message_id}: {error}");
+            Ok(false)
+        }
+    }
+}
+
+fn queue_message_deletion(
+    state: &BotState,
+    chat_id: i64,
+    message_id: i64,
+) -> Result<(), TelegramError> {
+    state
+        .pending_deletions
+        .lock()
+        .map_err(|_| TelegramError::Api("deletion queue lock was poisoned".to_owned()))?
+        .insert((chat_id, message_id));
+    Ok(())
+}
+
+fn retry_pending_deletions(state: &BotState) {
+    let pending = match state.pending_deletions.lock() {
+        Ok(mut pending) => std::mem::take(&mut *pending),
+        Err(_) => {
+            eprintln!("Memelith Telegram failed to acquire deletion queue lock");
+            return;
+        }
+    };
+    for (chat_id, message_id) in pending {
+        match state.api.delete_message(chat_id, message_id) {
+            Ok(true) => {}
+            Ok(false) => {
+                if let Err(error) = queue_message_deletion(state, chat_id, message_id) {
+                    eprintln!("Memelith Telegram failed to requeue deletion: {error}");
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "Memelith Telegram deletion retry failed for {chat_id}:{message_id}: {error}"
+                );
+                if let Err(queue_error) = queue_message_deletion(state, chat_id, message_id) {
+                    eprintln!("Memelith Telegram failed to requeue deletion: {queue_error}");
+                }
+            }
+        }
+    }
+}
+
 fn remove_temp_file(path: &Path) {
     if let Err(error) = fs::remove_file(path)
         && error.kind() != std::io::ErrorKind::NotFound
@@ -657,6 +837,33 @@ fn remove_temp_file(path: &Path) {
             "Memelith Telegram failed to remove {}: {error}",
             path.display()
         );
+    }
+}
+
+struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            remove_temp_file(&self.path);
+        }
     }
 }
 
@@ -679,7 +886,14 @@ struct Message {
     message_id: i64,
     chat: Chat,
     #[serde(default)]
+    from: Option<User>,
+    #[serde(default)]
     photo: Vec<PhotoSize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct User {
+    id: i64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -703,6 +917,8 @@ struct TelegramFile {
 #[derive(Debug, Deserialize)]
 struct CallbackQuery {
     id: String,
+    from: User,
+    message: Option<Message>,
     data: Option<String>,
 }
 
