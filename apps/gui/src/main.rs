@@ -1535,6 +1535,14 @@ impl MemelithView {
         cx.notify();
     }
 
+    fn show_meme_pack(&mut self, pack_name: &str, cx: &mut Context<Self>) {
+        let escaped_name = pack_name.replace('\\', "\\\\").replace('"', "\\\"");
+        let query = format!("pack:\"={escaped_name}\"");
+        self.meme_search_input
+            .update(cx, |input, cx| input.set_text(query, cx));
+        self.navigate(Page::All, cx);
+    }
+
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, _: &mut Context<Self>) {
         window.focus_next();
     }
@@ -2591,7 +2599,7 @@ impl MemelithView {
             .into_any_element()
     }
 
-    fn render_meme_packs_page(&self) -> AnyElement {
+    fn render_meme_packs_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let meme_counts = self.memes.iter().fold(HashMap::new(), |mut counts, meme| {
             *counts.entry(meme.meme_pack_id).or_insert(0) += 1;
             counts
@@ -2633,12 +2641,22 @@ impl MemelithView {
                     glass_group().children(self.meme_packs.iter().enumerate().map(
                         |(index, pack)| {
                             let meme_count = meme_counts.get(&pack.id).copied().unwrap_or(0);
+                            let pack_name = pack.name.clone();
                             div()
                                 .flex()
                                 .flex_col()
                                 .when(index > 0, |element| element.child(hairline()))
                                 .child(
                                     group_row()
+                                        .id(("meme-pack", index))
+                                        .cursor_pointer()
+                                        .tab_index(0)
+                                        .focus(|style| style.bg(rgba(0x007aff1f)))
+                                        .hover(|style| style.bg(rgba(0x007aff12)))
+                                        .active(|style| style.bg(rgba(0x007aff26)))
+                                        .on_click(cx.listener(move |view, _, _, cx| {
+                                            view.show_meme_pack(&pack_name, cx);
+                                        }))
                                         .child(
                                             div()
                                                 .size(px(38.))
@@ -2830,7 +2848,7 @@ impl Render for MemelithView {
             Page::Collector => self.render_collector_page(cx),
             Page::Add => self.render_add_page(cx),
             Page::All => self.render_all_page(cx),
-            Page::MemePacks => self.render_meme_packs_page(),
+            Page::MemePacks => self.render_meme_packs_page(cx),
             Page::Settings => self.render_settings_page(cx),
         };
         let collector_context_menu = self.render_collector_context_menu(cx);
