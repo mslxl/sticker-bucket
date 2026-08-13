@@ -270,13 +270,14 @@ impl SearchTerm {
 fn text_values(meme: &Meme) -> impl Iterator<Item = &str> {
     meme.contents.iter().filter_map(|content| match content {
         MemeContent::Text(text) => Some(text.text.as_str()),
-        MemeContent::Image(_) => None,
+        MemeContent::Image(_) | MemeContent::Motion(_) => None,
     })
 }
 
 fn type_values(meme: &Meme) -> impl Iterator<Item = &'static str> + '_ {
     meme.contents.iter().map(|content| match content {
         MemeContent::Image(_) => "image",
+        MemeContent::Motion(_) => "motion",
         MemeContent::Text(_) => "text",
     })
 }
@@ -284,6 +285,7 @@ fn type_values(meme: &Meme) -> impl Iterator<Item = &'static str> + '_ {
 fn content_values(meme: &Meme) -> impl Iterator<Item = &str> {
     meme.contents.iter().map(|content| match content {
         MemeContent::Image(_) => "image",
+        MemeContent::Motion(_) => "motion",
         MemeContent::Text(text) => text.text.as_str(),
     })
 }

@@ -14,11 +14,12 @@ use uuid::Uuid;
 use crate::{
     CollectorContent, CollectorDuplicate, CollectorDuplicateSource, CollectorDuplicateTarget,
     CollectorItem, EffectiveTag, EmbeddingProvider, Error, ImageDuplicate, ImageFormat, Meme,
-    MemeContent, MemeImage, MemePack, MemeText, NewMeme, NewMemeContent, NewMemeFromCollector,
-    NewMemePack, NewTag, Result, SimilarMemeImage, Tag, UpdateMemeMetadata, UpdateMemePack,
+    MemeContent, MemeImage, MemeMotion, MemePack, MemeText, MotionFormat, NewMeme, NewMemeContent,
+    NewMemeFromCollector, NewMemePack, NewTag, Result, SimilarMemeImage, Tag, UpdateMemeMetadata,
+    UpdateMemePack,
 };
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 1;
 const CONTENT_HASH_BYTES: usize = 32;
 const DATABASE_FILENAME: &str = "memelith.sqlite3";
 const MEDIA_DIRECTORY: &str = "media/images";
@@ -72,13 +73,7 @@ impl MemeDatabase {
         let database_path = storage_root.join(DATABASE_FILENAME);
         let mut connection = Connection::open(&database_path)?;
         configure_connection(&connection)?;
-        migrate_database(
-            &mut connection,
-            &storage_root,
-            model_id,
-            embedding_dimension,
-        )?;
-        ensure_collector_duplicate_override_column(&connection)?;
+        initialize_database(&mut connection, model_id, embedding_dimension)?;
 
         let database = Self {
             storage_root,
@@ -122,10 +117,12 @@ impl MemeDatabase {
 
         let analyzed = self.analyze_image_source(source_path.as_ref().to_path_buf())?;
         let mut statement = self.connection.prepare(
-            "SELECT c.id, c.meme_id, m.name, c.relative_path, c.embedding
+            "SELECT c.id, c.meme_id, m.name,
+                    CASE WHEN c.kind = 'motion' THEN c.preview_relative_path ELSE c.relative_path END,
+                    c.embedding
              FROM meme_contents c
              JOIN memes m ON m.id = c.meme_id
-             WHERE c.kind = 'image'",
+             WHERE c.kind IN ('image', 'motion') AND c.embedding IS NOT NULL",
         )?;
         let candidates = statement
             .query_map([], |row| {
@@ -133,7 +130,7 @@ impl MemeDatabase {
                     uuid_from_column(row, 0)?,
                     uuid_from_column(row, 1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, Vec<u8>>(4)?,
                 ))
             })?
@@ -141,6 +138,9 @@ impl MemeDatabase {
 
         let mut matches = Vec::new();
         for (content_id, meme_id, meme_name, relative_path, embedding) in candidates {
+            let Some(relative_path) = relative_path else {
+                continue;
+            };
             let relative_path = PathBuf::from(relative_path);
             let absolute_path = resolve_media_path(&self.storage_root, &relative_path)?;
             if !absolute_path.is_file() {
@@ -175,18 +175,37 @@ impl MemeDatabase {
         source_path: impl AsRef<Path>,
         max_cosine_distance: f32,
     ) -> Result<Vec<ImageDuplicate>> {
+        let source_path = source_path.as_ref();
+        self.find_media_duplicates(source_path, Some(source_path), max_cosine_distance)
+    }
+
+    pub fn find_media_duplicates(
+        &mut self,
+        source_path: impl AsRef<Path>,
+        preview_path: Option<&Path>,
+        max_cosine_distance: f32,
+    ) -> Result<Vec<ImageDuplicate>> {
         if !max_cosine_distance.is_finite() || !(0.0..=2.0).contains(&max_cosine_distance) {
             return Err(Error::InvalidCosineDistanceThreshold(max_cosine_distance));
         }
 
-        let analyzed = self.analyze_image_source(source_path.as_ref().to_path_buf())?;
+        let source_path = source_path.as_ref();
+        if !fs::metadata(source_path)?.is_file() {
+            return Err(Error::InvalidMotionMedia(source_path.to_path_buf()));
+        }
+        let incoming_content_hash = sha256_file(source_path)?;
+        let analyzed_preview = preview_path
+            .map(|path| self.analyze_image_source(path.to_path_buf()))
+            .transpose()?;
         let mut candidates = Vec::new();
         {
             let mut statement = self.connection.prepare(
-                "SELECT c.id, c.meme_id, m.name, c.relative_path, c.content_hash, c.embedding
+                "SELECT c.id, c.meme_id, m.name,
+                        CASE WHEN c.kind = 'motion' THEN c.preview_relative_path ELSE c.relative_path END,
+                        c.content_hash, c.embedding
                  FROM meme_contents c
                  JOIN memes m ON m.id = c.meme_id
-                 WHERE c.kind = 'image'",
+                 WHERE c.kind IN ('image', 'motion')",
             )?;
             let rows = statement.query_map([], |row| {
                 Ok((
@@ -194,18 +213,20 @@ impl MemeDatabase {
                     CollectorDuplicateSource::Meme,
                     Some(uuid_from_column(row, 1)?),
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, Vec<u8>>(4)?,
-                    row.get::<_, Vec<u8>>(5)?,
+                    row.get::<_, Option<Vec<u8>>>(5)?,
                 ))
             })?;
             candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
         }
         {
             let mut statement = self.connection.prepare(
-                "SELECT id, relative_path, content_hash, embedding
+                "SELECT id,
+                        CASE WHEN kind = 'motion' THEN preview_relative_path ELSE relative_path END,
+                        content_hash, embedding
                  FROM collector_items
-                 WHERE kind = 'image'",
+                 WHERE kind IN ('image', 'motion')",
             )?;
             let rows = statement.query_map([], |row| {
                 Ok((
@@ -213,29 +234,44 @@ impl MemeDatabase {
                     CollectorDuplicateSource::Collector,
                     None,
                     None,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(1)?,
                     row.get::<_, Vec<u8>>(2)?,
-                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, Option<Vec<u8>>>(3)?,
                 ))
             })?;
             candidates.extend(rows.collect::<std::result::Result<Vec<_>, _>>()?);
         }
 
         let mut matches = Vec::new();
-        for (content_id, source, meme_id, meme_name, relative_path, content_hash, embedding) in
-            candidates
+        for (
+            content_id,
+            source,
+            meme_id,
+            meme_name,
+            preview_relative_path,
+            content_hash,
+            embedding,
+        ) in candidates
         {
-            let relative_path = PathBuf::from(relative_path);
-            let absolute_path = resolve_media_path(&self.storage_root, &relative_path)?;
-            if !absolute_path.is_file() {
-                return Err(Error::MissingMedia(absolute_path));
+            let preview_relative_path = preview_relative_path.map(PathBuf::from);
+            if let Some(preview_relative_path) = &preview_relative_path {
+                let absolute_path = resolve_media_path(&self.storage_root, preview_relative_path)?;
+                if !absolute_path.is_file() {
+                    return Err(Error::MissingMedia(absolute_path));
+                }
             }
-            let cosine_distance = if content_hash == analyzed.content_hash {
+            let cosine_distance = if content_hash == incoming_content_hash {
                 None
             } else {
+                let Some(analyzed_preview) = analyzed_preview.as_ref() else {
+                    continue;
+                };
+                let Some(embedding) = embedding.as_deref() else {
+                    continue;
+                };
                 let distance = cosine_distance_between_encoded_embeddings(
-                    &analyzed.embedding,
-                    &embedding,
+                    &analyzed_preview.embedding,
+                    embedding,
                     self.embedding_dimension,
                 )?;
                 if distance > max_cosine_distance {
@@ -248,7 +284,7 @@ impl MemeDatabase {
                 source,
                 meme_id,
                 meme_name,
-                relative_path,
+                preview_relative_path,
                 cosine_distance,
             });
         }
@@ -270,6 +306,24 @@ impl MemeDatabase {
         self.collect_prepared_content(content)
     }
 
+    pub fn collect_motion(
+        &mut self,
+        source_path: impl AsRef<Path>,
+        preview_path: Option<PathBuf>,
+        width: u32,
+        height: u32,
+        format: MotionFormat,
+    ) -> Result<CollectorItem> {
+        let content = self.prepare_content(NewMemeContent::Motion {
+            source_path: source_path.as_ref().to_path_buf(),
+            preview_path,
+            width,
+            height,
+            format,
+        })?;
+        self.collect_prepared_content(content)
+    }
+
     pub fn collect_text(&mut self, text: String) -> Result<CollectorItem> {
         let content = self.prepare_content(NewMemeContent::Text { text })?;
         self.collect_prepared_content(content)
@@ -279,9 +333,10 @@ impl MemeDatabase {
         let raw = self
             .connection
             .query_row(
-                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                        content_hash, embedding, duplicate_kind, duplicate_target_source,
-                        duplicate_target_id, duplicate_distance, duplicate_dismissed
+                "SELECT id, kind, text, relative_path, preview_relative_path, width, height,
+                        byte_size, image_format, motion_format, content_hash, embedding,
+                        duplicate_kind, duplicate_target_source, duplicate_target_id,
+                        duplicate_distance, duplicate_dismissed
                  FROM collector_items
                  WHERE id = ?1",
                 [id.to_string()],
@@ -295,9 +350,10 @@ impl MemeDatabase {
     pub fn list_collector_items(&self) -> Result<Vec<CollectorItem>> {
         let rows = {
             let mut statement = self.connection.prepare(
-                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                        content_hash, embedding, duplicate_kind, duplicate_target_source,
-                        duplicate_target_id, duplicate_distance, duplicate_dismissed
+                "SELECT id, kind, text, relative_path, preview_relative_path, width, height,
+                        byte_size, image_format, motion_format, content_hash, embedding,
+                        duplicate_kind, duplicate_target_source, duplicate_target_id,
+                        duplicate_distance, duplicate_dismissed
                  FROM collector_items
                  ORDER BY rowid DESC",
             )?;
@@ -316,9 +372,10 @@ impl MemeDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let rows = {
             let mut statement = transaction.prepare(
-                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                        content_hash, embedding, duplicate_kind, duplicate_target_source,
-                        duplicate_target_id, duplicate_distance, duplicate_dismissed
+                "SELECT id, kind, text, relative_path, preview_relative_path, width, height,
+                        byte_size, image_format, motion_format, content_hash, embedding,
+                        duplicate_kind, duplicate_target_source, duplicate_target_id,
+                        duplicate_distance, duplicate_dismissed
                  FROM collector_items
                  ORDER BY rowid DESC",
             )?;
@@ -361,9 +418,23 @@ impl MemeDatabase {
         let item = self.get_collector_item(id)?;
         let media = match item.content {
             CollectorContent::Image { relative_path, .. } => {
-                Some(resolve_media_path(&self.storage_root, &relative_path)?)
+                vec![resolve_media_path(&self.storage_root, &relative_path)?]
             }
-            CollectorContent::Text { .. } => None,
+            CollectorContent::Motion {
+                relative_path,
+                preview_relative_path,
+                ..
+            } => {
+                let mut paths = vec![resolve_media_path(&self.storage_root, &relative_path)?];
+                if let Some(preview_relative_path) = preview_relative_path {
+                    paths.push(resolve_media_path(
+                        &self.storage_root,
+                        &preview_relative_path,
+                    )?);
+                }
+                paths
+            }
+            CollectorContent::Text { .. } => Vec::new(),
         };
         let transaction = self.connection.transaction()?;
         let deleted = transaction.execute(
@@ -374,9 +445,7 @@ impl MemeDatabase {
             return Err(Error::CollectorItemNotFound(id));
         }
         transaction.commit()?;
-        if let Some(media) = media {
-            remove_managed_files(&[media])?;
-        }
+        remove_managed_files(&media)?;
         Ok(())
     }
 
@@ -415,9 +484,10 @@ impl MemeDatabase {
         for id in &item_ids {
             let raw = transaction
                 .query_row(
-                    "SELECT id, kind, text, relative_path, width, height, byte_size, image_format,
-                            content_hash, embedding, duplicate_kind, duplicate_target_source,
-                            duplicate_target_id, duplicate_distance, duplicate_dismissed
+                    "SELECT id, kind, text, relative_path, preview_relative_path, width, height,
+                            byte_size, image_format, motion_format, content_hash, embedding,
+                            duplicate_kind, duplicate_target_source, duplicate_target_id,
+                            duplicate_distance, duplicate_dismissed
                      FROM collector_items
                      WHERE id = ?1",
                     [id.to_string()],
@@ -451,11 +521,11 @@ impl MemeDatabase {
         for (position, id) in item_ids.iter().enumerate() {
             let inserted = transaction.execute(
                 "INSERT INTO meme_contents(
-                    id, meme_id, position, kind, text, relative_path, width, height,
-                    byte_size, image_format, content_hash, embedding
+                    id, meme_id, position, kind, text, relative_path, preview_relative_path,
+                    width, height, byte_size, image_format, motion_format, content_hash, embedding
                  )
-                 SELECT id, ?1, ?2, kind, text, relative_path, width, height,
-                        byte_size, image_format, content_hash, embedding
+                 SELECT id, ?1, ?2, kind, text, relative_path, preview_relative_path,
+                        width, height, byte_size, image_format, motion_format, content_hash, embedding
                  FROM collector_items
                  WHERE id = ?3 AND duplicate_kind IS NULL",
                 params![
@@ -570,7 +640,7 @@ impl MemeDatabase {
 
     pub fn delete_meme_pack(&mut self, id: Uuid) -> Result<()> {
         self.ensure_meme_pack(id)?;
-        let media = self.image_paths_for_meme_pack(id)?;
+        let media = self.media_paths_for_meme_pack(id)?;
         let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM meme_packs WHERE id = ?1", [id.to_string()])?;
         transaction.commit()?;
@@ -657,6 +727,34 @@ impl MemeDatabase {
         ids.into_iter().map(|id| self.get_meme(id)).collect()
     }
 
+    pub fn find_meme_with_media_in_pack(
+        &self,
+        meme_pack_id: Uuid,
+        source_path: impl AsRef<Path>,
+    ) -> Result<Option<Uuid>> {
+        self.ensure_meme_pack(meme_pack_id)?;
+        let source_path = source_path.as_ref();
+        if !fs::metadata(source_path)?.is_file() {
+            return Err(Error::InvalidMotionMedia(source_path.to_path_buf()));
+        }
+        let content_hash = sha256_file(source_path)?;
+        self.connection
+            .query_row(
+                "SELECT m.id
+                 FROM meme_contents c
+                 JOIN memes m ON m.id = c.meme_id
+                 WHERE m.meme_pack_id = ?1
+                   AND c.kind IN ('image', 'motion')
+                   AND c.content_hash = ?2
+                 ORDER BY m.rowid
+                 LIMIT 1",
+                params![meme_pack_id.to_string(), content_hash],
+                |row| uuid_from_column(row, 0),
+            )
+            .optional()
+            .map_err(Error::from)
+    }
+
     /// Lists every Meme independently of its MemePack, newest first.
     pub fn list_all_memes(&self) -> Result<Vec<Meme>> {
         let ids = {
@@ -711,7 +809,7 @@ impl MemeDatabase {
         if contents.is_empty() {
             return Err(Error::EmptyMemeContents);
         }
-        let old_media = self.image_paths_for_meme(id)?;
+        let old_media = self.media_paths_for_meme(id)?;
         let contents = self.prepare_contents(contents)?;
         let mut pending_files =
             PendingFiles::stage(&self.storage_root.join(STAGING_DIRECTORY), &contents)?;
@@ -731,7 +829,7 @@ impl MemeDatabase {
 
     pub fn delete_meme(&mut self, id: Uuid) -> Result<()> {
         self.ensure_meme(id)?;
-        let media = self.image_paths_for_meme(id)?;
+        let media = self.media_paths_for_meme(id)?;
         let transaction = self.connection.transaction()?;
         transaction.execute("DELETE FROM memes WHERE id = ?1", [id.to_string()])?;
         transaction.commit()?;
@@ -993,7 +1091,7 @@ impl MemeDatabase {
             embedding_dimension,
             &row.kind,
             &row.content_hash,
-            &row.embedding,
+            row.embedding.as_deref(),
             Some(row.id),
             !row.duplicate_dismissed,
         )?;
@@ -1008,7 +1106,7 @@ impl MemeDatabase {
         embedding_dimension: usize,
         kind: &str,
         content_hash: &[u8],
-        embedding: &[u8],
+        embedding: Option<&[u8]>,
         collector_predecessor_of: Option<Uuid>,
         allow_similarity: bool,
     ) -> Result<Option<DetectedDuplicate>> {
@@ -1020,6 +1118,9 @@ impl MemeDatabase {
         if !allow_similarity {
             return Ok(None);
         }
+        let Some(embedding) = embedding else {
+            return Ok(None);
+        };
 
         let mut closest: Option<(DuplicateReference, f32)> = None;
         for candidate in Self::duplicate_candidates(connection, kind, collector_predecessor_of)? {
@@ -1109,14 +1210,14 @@ impl MemeDatabase {
             let (sql, current) = match collector_predecessor_of {
                 Some(id) => (
                     "SELECT id, embedding FROM collector_items
-                     WHERE kind = ?1
+                     WHERE kind = ?1 AND embedding IS NOT NULL
                        AND rowid < (SELECT rowid FROM collector_items WHERE id = ?2)
                      ORDER BY rowid DESC",
                     Some(id.to_string()),
                 ),
                 None => (
                     "SELECT id, embedding FROM collector_items
-                     WHERE kind = ?1 ORDER BY rowid DESC",
+                     WHERE kind = ?1 AND embedding IS NOT NULL ORDER BY rowid DESC",
                     None,
                 ),
             };
@@ -1139,7 +1240,7 @@ impl MemeDatabase {
         {
             let mut statement = connection.prepare(
                 "SELECT id, embedding FROM meme_contents
-                 WHERE kind = ?1 ORDER BY rowid DESC",
+                 WHERE kind = ?1 AND embedding IS NOT NULL ORDER BY rowid DESC",
             )?;
             let rows = statement.query_map([kind], |row| {
                 Ok(DuplicateCandidate {
@@ -1189,6 +1290,64 @@ impl MemeDatabase {
                     embedding: analyzed.embedding,
                 })
             }
+            NewMemeContent::Motion {
+                source_path,
+                preview_path,
+                width,
+                height,
+                format,
+            } => {
+                if width == 0 || height == 0 || !fs::metadata(&source_path)?.is_file() {
+                    return Err(Error::InvalidMotionMedia(source_path));
+                }
+                let content_hash = sha256_file(&source_path)?;
+                let byte_size = fs::metadata(&source_path)?.len();
+                if byte_size == 0 {
+                    return Err(Error::InvalidMotionMedia(source_path));
+                }
+                let relative_path =
+                    PathBuf::from(format!("{MEDIA_DIRECTORY}/{id}.{}", format.extension()));
+                let final_path = resolve_media_path(&self.storage_root, &relative_path)?;
+                let preview = preview_path
+                    .map(|preview_path| self.analyze_image_source(preview_path))
+                    .transpose()?;
+                let (preview_source_path, preview_relative_path, preview_final_path, embedding) =
+                    match preview {
+                        Some(preview) => {
+                            let relative_path = PathBuf::from(format!(
+                                "{MEDIA_DIRECTORY}/{id}.preview.{}",
+                                preview.format.extension()
+                            ));
+                            let final_path =
+                                resolve_media_path(&self.storage_root, &relative_path)?;
+                            (
+                                Some(preview.source_path),
+                                Some(relative_path),
+                                Some(final_path),
+                                Some(preview.embedding),
+                            )
+                        }
+                        None => (None, None, None, None),
+                    };
+                if sha256_file(&source_path)? != content_hash {
+                    return Err(Error::SourceMediaChanged(source_path));
+                }
+                Ok(PreparedContent::Motion {
+                    id,
+                    source_path,
+                    relative_path,
+                    final_path,
+                    preview_source_path,
+                    preview_relative_path,
+                    preview_final_path,
+                    width,
+                    height,
+                    byte_size,
+                    format,
+                    content_hash,
+                    embedding,
+                })
+            }
         }
     }
 
@@ -1223,7 +1382,8 @@ impl MemeDatabase {
     fn contents_for_meme(&self, meme_id: Uuid) -> Result<Vec<MemeContent>> {
         let rows = {
             let mut statement = self.connection.prepare(
-                "SELECT id, kind, text, relative_path, width, height, byte_size, image_format
+                "SELECT id, kind, text, relative_path, preview_relative_path, width, height,
+                        byte_size, image_format, motion_format
                  FROM meme_contents
                  WHERE meme_id = ?1
                  ORDER BY position",
@@ -1235,10 +1395,12 @@ impl MemeDatabase {
                         kind: row.get(1)?,
                         text: row.get(2)?,
                         relative_path: row.get(3)?,
-                        width: row.get(4)?,
-                        height: row.get(5)?,
-                        byte_size: row.get(6)?,
-                        image_format: row.get(7)?,
+                        preview_relative_path: row.get(4)?,
+                        width: row.get(5)?,
+                        height: row.get(6)?,
+                        byte_size: row.get(7)?,
+                        image_format: row.get(8)?,
+                        motion_format: row.get(9)?,
                     })
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?
@@ -1284,25 +1446,33 @@ impl MemeDatabase {
         Ok(found)
     }
 
-    fn image_paths_for_meme(&self, meme_id: Uuid) -> Result<Vec<PathBuf>> {
-        self.query_image_paths(
-            "SELECT relative_path FROM meme_contents
-             WHERE meme_id = ?1 AND kind = 'image'",
+    fn media_paths_for_meme(&self, meme_id: Uuid) -> Result<Vec<PathBuf>> {
+        self.query_media_paths(
+            "SELECT relative_path FROM meme_contents WHERE meme_id = ?1 AND kind IN ('image', 'motion')
+             UNION ALL
+             SELECT preview_relative_path FROM meme_contents
+             WHERE meme_id = ?1 AND kind = 'motion' AND preview_relative_path IS NOT NULL",
             meme_id,
         )
     }
 
-    fn image_paths_for_meme_pack(&self, meme_pack_id: Uuid) -> Result<Vec<PathBuf>> {
-        self.query_image_paths(
+    fn media_paths_for_meme_pack(&self, meme_pack_id: Uuid) -> Result<Vec<PathBuf>> {
+        self.query_media_paths(
             "SELECT c.relative_path
              FROM meme_contents c
              JOIN memes m ON m.id = c.meme_id
-             WHERE m.meme_pack_id = ?1 AND c.kind = 'image'",
+             WHERE m.meme_pack_id = ?1 AND c.kind IN ('image', 'motion')
+             UNION ALL
+             SELECT c.preview_relative_path
+             FROM meme_contents c
+             JOIN memes m ON m.id = c.meme_id
+             WHERE m.meme_pack_id = ?1 AND c.kind = 'motion'
+               AND c.preview_relative_path IS NOT NULL",
             meme_pack_id,
         )
     }
 
-    fn query_image_paths(&self, sql: &str, owner_id: Uuid) -> Result<Vec<PathBuf>> {
+    fn query_media_paths(&self, sql: &str, owner_id: Uuid) -> Result<Vec<PathBuf>> {
         let relative_paths = {
             let mut statement = self.connection.prepare(sql)?;
             statement
@@ -1337,9 +1507,15 @@ impl MemeDatabase {
     fn collect_orphaned_media(&self) -> Result<()> {
         let referenced = {
             let mut statement = self.connection.prepare(
-                "SELECT relative_path FROM meme_contents WHERE kind = 'image'
+                "SELECT relative_path FROM meme_contents WHERE kind IN ('image', 'motion')
                  UNION
-                 SELECT relative_path FROM collector_items WHERE kind = 'image'",
+                 SELECT preview_relative_path FROM meme_contents
+                 WHERE kind = 'motion' AND preview_relative_path IS NOT NULL
+                 UNION
+                 SELECT relative_path FROM collector_items WHERE kind IN ('image', 'motion')
+                 UNION
+                 SELECT preview_relative_path FROM collector_items
+                 WHERE kind = 'motion' AND preview_relative_path IS NOT NULL",
             )?;
             statement
                 .query_map([], |row| row.get::<_, String>(0))?
@@ -1377,147 +1553,20 @@ fn configure_connection(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn ensure_collector_duplicate_override_column(connection: &Connection) -> Result<()> {
-    let columns = {
-        let mut statement = connection.prepare("PRAGMA table_info(collector_items)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    };
-    if columns.iter().any(|column| column == "duplicate_dismissed") {
-        return Ok(());
-    }
-    connection.execute(
-        "ALTER TABLE collector_items
-         ADD COLUMN duplicate_dismissed INTEGER NOT NULL DEFAULT 0
-         CHECK(duplicate_dismissed IN (0, 1))",
-        [],
-    )?;
-    Ok(())
-}
-
-fn migrate_database(
+fn initialize_database(
     connection: &mut Connection,
-    storage_root: &Path,
     model_id: &str,
     embedding_dimension: usize,
 ) -> Result<()> {
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     match version {
         0 => create_schema(connection, model_id, embedding_dimension),
-        1 => migrate_v1_to_v2(connection, storage_root, model_id, embedding_dimension),
         SCHEMA_VERSION => validate_database_metadata(connection, model_id, embedding_dimension),
         actual => Err(Error::UnsupportedSchemaVersion {
             expected: SCHEMA_VERSION,
             actual,
         }),
     }
-}
-
-struct MigratingContent {
-    id: String,
-    meme_id: String,
-    position: i64,
-    kind: String,
-    text: Option<String>,
-    relative_path: Option<String>,
-    width: Option<i64>,
-    height: Option<i64>,
-    byte_size: Option<i64>,
-    image_format: Option<String>,
-    content_hash: Vec<u8>,
-    embedding: Vec<u8>,
-}
-
-fn load_v1_contents_for_migration(
-    connection: &Connection,
-    storage_root: &Path,
-) -> Result<Vec<MigratingContent>> {
-    let rows = {
-        let mut statement = connection.prepare(
-            "SELECT id, meme_id, position, kind, text, relative_path, width, height,
-                    byte_size, image_format, embedding
-             FROM meme_contents
-             ORDER BY rowid",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<i64>>(6)?,
-                    row.get::<_, Option<i64>>(7)?,
-                    row.get::<_, Option<i64>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Vec<u8>>(10)?,
-                ))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?
-    };
-    rows.into_iter()
-        .map(
-            |(
-                id,
-                meme_id,
-                position,
-                kind,
-                text,
-                relative_path,
-                width,
-                height,
-                byte_size,
-                image_format,
-                embedding,
-            )| {
-                let content_hash = match kind.as_str() {
-                    "text" => {
-                        let text = text.as_ref().ok_or_else(|| {
-                            Error::InvalidDatabase(format!(
-                                "text content {id} has no text during schema migration"
-                            ))
-                        })?;
-                        sha256_bytes(text.as_bytes())
-                    }
-                    "image" => {
-                        let relative_path = relative_path.as_ref().ok_or_else(|| {
-                            Error::InvalidDatabase(format!(
-                                "image content {id} has no path during schema migration"
-                            ))
-                        })?;
-                        let absolute_path =
-                            resolve_media_path(storage_root, Path::new(relative_path))?;
-                        if !absolute_path.is_file() {
-                            return Err(Error::MissingMedia(absolute_path));
-                        }
-                        sha256_file(&absolute_path)?
-                    }
-                    _ => {
-                        return Err(Error::InvalidDatabase(format!(
-                            "content {id} has unknown kind `{kind}` during schema migration"
-                        )));
-                    }
-                };
-                Ok(MigratingContent {
-                    id,
-                    meme_id,
-                    position,
-                    kind,
-                    text,
-                    relative_path,
-                    width,
-                    height,
-                    byte_size,
-                    image_format,
-                    content_hash,
-                    embedding,
-                })
-            },
-        )
-        .collect()
 }
 
 fn create_schema(
@@ -1575,37 +1624,48 @@ fn create_schema(
             id TEXT PRIMARY KEY,
             meme_id TEXT NOT NULL REFERENCES memes(id) ON DELETE CASCADE,
             position INTEGER NOT NULL CHECK(position >= 0),
-            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
+            kind TEXT NOT NULL CHECK(kind IN ('image', 'motion', 'text')),
             text TEXT,
             relative_path TEXT UNIQUE,
+            preview_relative_path TEXT UNIQUE,
             width INTEGER,
             height INTEGER,
             byte_size INTEGER,
             image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            motion_format TEXT CHECK(motion_format IN ('mp4', 'webm', 'tgs')),
             content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
-            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
+            embedding BLOB CHECK(embedding IS NULL OR length(embedding) = {embedding_bytes}),
             UNIQUE(meme_id, position),
             CHECK(
                 (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
                  relative_path IS NULL AND width IS NULL AND height IS NULL AND
-                 byte_size IS NULL AND image_format IS NULL) OR
+                 byte_size IS NULL AND image_format IS NULL AND motion_format IS NULL AND
+                 preview_relative_path IS NULL AND embedding IS NOT NULL) OR
                 (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
-                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL AND
+                 motion_format IS NULL AND preview_relative_path IS NULL AND embedding IS NOT NULL) OR
+                (kind = 'motion' AND text IS NULL AND relative_path IS NOT NULL AND
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NULL AND
+                 motion_format IS NOT NULL AND
+                 ((preview_relative_path IS NULL AND embedding IS NULL) OR
+                  (preview_relative_path IS NOT NULL AND embedding IS NOT NULL)))
             )
         );
         CREATE INDEX meme_contents_meme ON meme_contents(meme_id, position);
         CREATE INDEX meme_contents_kind_hash ON meme_contents(kind, content_hash);
         CREATE TABLE collector_items (
             id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
+            kind TEXT NOT NULL CHECK(kind IN ('image', 'motion', 'text')),
             text TEXT,
             relative_path TEXT UNIQUE,
+            preview_relative_path TEXT UNIQUE,
             width INTEGER,
             height INTEGER,
             byte_size INTEGER,
             image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
+            motion_format TEXT CHECK(motion_format IN ('mp4', 'webm', 'tgs')),
             content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
-            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
+            embedding BLOB CHECK(embedding IS NULL OR length(embedding) = {embedding_bytes}),
             duplicate_kind TEXT CHECK(duplicate_kind IN ('hash', 'similarity')),
             duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
             duplicate_target_id TEXT,
@@ -1614,9 +1674,16 @@ fn create_schema(
             CHECK(
                 (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
                  relative_path IS NULL AND width IS NULL AND height IS NULL AND
-                 byte_size IS NULL AND image_format IS NULL) OR
+                 byte_size IS NULL AND image_format IS NULL AND motion_format IS NULL AND
+                 preview_relative_path IS NULL AND embedding IS NOT NULL) OR
                 (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
-                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL AND
+                 motion_format IS NULL AND preview_relative_path IS NULL AND embedding IS NOT NULL) OR
+                (kind = 'motion' AND text IS NULL AND relative_path IS NOT NULL AND
+                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NULL AND
+                 motion_format IS NOT NULL AND
+                 ((preview_relative_path IS NULL AND embedding IS NULL) OR
+                  (preview_relative_path IS NOT NULL AND embedding IS NOT NULL)))
             ),
             CHECK(
                 (duplicate_kind IS NULL AND duplicate_target_source IS NULL AND
@@ -1662,141 +1729,8 @@ fn create_schema(
     Ok(())
 }
 
-fn migrate_v1_to_v2(
-    connection: &mut Connection,
-    storage_root: &Path,
-    model_id: &str,
-    embedding_dimension: usize,
-) -> Result<()> {
-    let embedding_bytes = embedding_dimension
-        .checked_mul(size_of::<f32>())
-        .ok_or_else(|| Error::InvalidDatabase("embedding byte length exceeds usize".to_owned()))?;
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let version: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version == SCHEMA_VERSION {
-        validate_database_metadata_version(
-            &transaction,
-            SCHEMA_VERSION,
-            model_id,
-            embedding_dimension,
-        )?;
-        transaction.commit()?;
-        return Ok(());
-    }
-    if version != 1 {
-        return Err(Error::UnsupportedSchemaVersion {
-            expected: SCHEMA_VERSION,
-            actual: version,
-        });
-    }
-    validate_database_metadata_version(&transaction, 1, model_id, embedding_dimension)?;
-    let contents = load_v1_contents_for_migration(&transaction, storage_root)?;
-    transaction.execute_batch(&format!(
-        "ALTER TABLE meme_contents RENAME TO meme_contents_v1;
-         CREATE TABLE meme_contents (
-            id TEXT PRIMARY KEY,
-            meme_id TEXT NOT NULL REFERENCES memes(id) ON DELETE CASCADE,
-            position INTEGER NOT NULL CHECK(position >= 0),
-            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
-            text TEXT,
-            relative_path TEXT UNIQUE,
-            width INTEGER,
-            height INTEGER,
-            byte_size INTEGER,
-            image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
-            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
-            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
-            UNIQUE(meme_id, position),
-            CHECK(
-                (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
-                 relative_path IS NULL AND width IS NULL AND height IS NULL AND
-                 byte_size IS NULL AND image_format IS NULL) OR
-                (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
-                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
-            )
-         );"
-    ))?;
-    for content in contents {
-        transaction.execute(
-            "INSERT INTO meme_contents(
-                id, meme_id, position, kind, text, relative_path, width, height,
-                byte_size, image_format, content_hash, embedding
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                content.id,
-                content.meme_id,
-                content.position,
-                content.kind,
-                content.text,
-                content.relative_path,
-                content.width,
-                content.height,
-                content.byte_size,
-                content.image_format,
-                content.content_hash,
-                content.embedding,
-            ],
-        )?;
-    }
-    transaction.execute_batch(&format!(
-        "DROP TABLE meme_contents_v1;
-         CREATE INDEX meme_contents_meme ON meme_contents(meme_id, position);
-         CREATE INDEX meme_contents_kind_hash ON meme_contents(kind, content_hash);
-         CREATE TABLE collector_items (
-            id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL CHECK(kind IN ('image', 'text')),
-            text TEXT,
-            relative_path TEXT UNIQUE,
-            width INTEGER,
-            height INTEGER,
-            byte_size INTEGER,
-            image_format TEXT CHECK(image_format IN ('png', 'jpeg', 'webp', 'gif')),
-            content_hash BLOB NOT NULL CHECK(length(content_hash) = {CONTENT_HASH_BYTES}),
-            embedding BLOB NOT NULL CHECK(length(embedding) = {embedding_bytes}),
-            duplicate_kind TEXT CHECK(duplicate_kind IN ('hash', 'similarity')),
-            duplicate_target_source TEXT CHECK(duplicate_target_source IN ('collector', 'meme')),
-            duplicate_target_id TEXT,
-            duplicate_distance REAL,
-            duplicate_dismissed INTEGER NOT NULL DEFAULT 0 CHECK(duplicate_dismissed IN (0, 1)),
-            CHECK(
-                (kind = 'text' AND text IS NOT NULL AND trim(text) <> '' AND
-                 relative_path IS NULL AND width IS NULL AND height IS NULL AND
-                 byte_size IS NULL AND image_format IS NULL) OR
-                (kind = 'image' AND text IS NULL AND relative_path IS NOT NULL AND
-                 width > 0 AND height > 0 AND byte_size > 0 AND image_format IS NOT NULL)
-            ),
-            CHECK(
-                (duplicate_kind IS NULL AND duplicate_target_source IS NULL AND
-                 duplicate_target_id IS NULL AND duplicate_distance IS NULL) OR
-                (duplicate_kind = 'hash' AND duplicate_target_source IS NOT NULL AND
-                 duplicate_target_id IS NOT NULL AND duplicate_distance IS NULL) OR
-                (duplicate_kind = 'similarity' AND duplicate_target_source IS NOT NULL AND
-                 duplicate_target_id IS NOT NULL AND duplicate_distance BETWEEN 0.0 AND 2.0)
-            ),
-            CHECK(duplicate_dismissed = 0 OR duplicate_kind IS NULL)
-         );
-         CREATE INDEX collector_items_kind_hash ON collector_items(kind, content_hash);"
-    ))?;
-    transaction.execute(
-        "UPDATE metadata SET schema_version = ?1 WHERE singleton = 1",
-        [SCHEMA_VERSION],
-    )?;
-    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    transaction.commit()?;
-    Ok(())
-}
-
 fn validate_database_metadata(
     connection: &Connection,
-    model_id: &str,
-    embedding_dimension: usize,
-) -> Result<()> {
-    validate_database_metadata_version(connection, SCHEMA_VERSION, model_id, embedding_dimension)
-}
-
-fn validate_database_metadata_version(
-    connection: &Connection,
-    expected_schema_version: i64,
     model_id: &str,
     embedding_dimension: usize,
 ) -> Result<()> {
@@ -1815,9 +1749,9 @@ fn validate_database_metadata_version(
         )
         .optional()?
         .ok_or_else(|| Error::InvalidDatabase("metadata row is missing".to_owned()))?;
-    if metadata.0 != expected_schema_version {
+    if metadata.0 != SCHEMA_VERSION {
         return Err(Error::UnsupportedSchemaVersion {
-            expected: expected_schema_version,
+            expected: SCHEMA_VERSION,
             actual: metadata.0,
         });
     }
@@ -1893,6 +1827,21 @@ enum PreparedContent {
         content_hash: Vec<u8>,
         embedding: Vec<u8>,
     },
+    Motion {
+        id: Uuid,
+        source_path: PathBuf,
+        relative_path: PathBuf,
+        final_path: PathBuf,
+        preview_source_path: Option<PathBuf>,
+        preview_relative_path: Option<PathBuf>,
+        preview_final_path: Option<PathBuf>,
+        width: u32,
+        height: u32,
+        byte_size: u64,
+        format: MotionFormat,
+        content_hash: Vec<u8>,
+        embedding: Option<Vec<u8>>,
+    },
     Text {
         id: Uuid,
         text: String,
@@ -1904,26 +1853,30 @@ enum PreparedContent {
 impl PreparedContent {
     fn id(&self) -> Uuid {
         match self {
-            Self::Image { id, .. } | Self::Text { id, .. } => *id,
+            Self::Image { id, .. } | Self::Motion { id, .. } | Self::Text { id, .. } => *id,
         }
     }
 
     fn kind(&self) -> &'static str {
         match self {
             Self::Image { .. } => "image",
+            Self::Motion { .. } => "motion",
             Self::Text { .. } => "text",
         }
     }
 
     fn content_hash(&self) -> &[u8] {
         match self {
-            Self::Image { content_hash, .. } | Self::Text { content_hash, .. } => content_hash,
+            Self::Image { content_hash, .. }
+            | Self::Motion { content_hash, .. }
+            | Self::Text { content_hash, .. } => content_hash,
         }
     }
 
-    fn embedding(&self) -> &[u8] {
+    fn embedding(&self) -> Option<&[u8]> {
         match self {
-            Self::Image { embedding, .. } | Self::Text { embedding, .. } => embedding,
+            Self::Image { embedding, .. } | Self::Text { embedding, .. } => Some(embedding),
+            Self::Motion { embedding, .. } => embedding.as_deref(),
         }
     }
 }
@@ -1981,6 +1934,44 @@ fn insert_collector_content(
                     i64::from(*width),
                     i64::from(*height),
                     u64_to_i64(*byte_size, "image byte size")?,
+                    format.as_database_str(),
+                    content_hash,
+                    embedding,
+                    duplicate.kind,
+                    duplicate.target_source,
+                    duplicate.target_id,
+                    duplicate.distance,
+                ],
+            )?;
+        }
+        PreparedContent::Motion {
+            id,
+            relative_path,
+            preview_relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+            content_hash,
+            embedding,
+            ..
+        } => {
+            transaction.execute(
+                "INSERT INTO collector_items(
+                    id, kind, relative_path, preview_relative_path, width, height, byte_size,
+                    motion_format, content_hash, embedding, duplicate_kind,
+                    duplicate_target_source, duplicate_target_id, duplicate_distance
+                 ) VALUES (?1, 'motion', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    id.to_string(),
+                    path_to_database_string(relative_path)?,
+                    preview_relative_path
+                        .as_deref()
+                        .map(path_to_database_string)
+                        .transpose()?,
+                    i64::from(*width),
+                    i64::from(*height),
+                    u64_to_i64(*byte_size, "motion byte size")?,
                     format.as_database_str(),
                     content_hash,
                     embedding,
@@ -2157,6 +2148,41 @@ fn insert_contents(
                     ],
                 )?;
             }
+            PreparedContent::Motion {
+                id,
+                relative_path,
+                preview_relative_path,
+                width,
+                height,
+                byte_size,
+                format,
+                content_hash,
+                embedding,
+                ..
+            } => {
+                transaction.execute(
+                    "INSERT INTO meme_contents(
+                        id, meme_id, position, kind, relative_path, preview_relative_path,
+                        width, height, byte_size, motion_format, content_hash, embedding
+                     ) VALUES (?1, ?2, ?3, 'motion', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![
+                        id.to_string(),
+                        meme_id.to_string(),
+                        position,
+                        path_to_database_string(relative_path)?,
+                        preview_relative_path
+                            .as_deref()
+                            .map(path_to_database_string)
+                            .transpose()?,
+                        i64::from(*width),
+                        i64::from(*height),
+                        u64_to_i64(*byte_size, "motion byte size")?,
+                        format.as_database_str(),
+                        content_hash,
+                        embedding,
+                    ],
+                )?;
+            }
         }
     }
     Ok(())
@@ -2180,36 +2206,81 @@ impl PendingFiles {
             active: true,
         };
         for content in contents {
-            let PreparedContent::Image {
-                id,
-                source_path,
-                final_path,
-                byte_size,
-                content_hash,
-                ..
-            } = content
-            else {
-                continue;
-            };
-            let staged = staging_directory.join(format!("{id}.tmp"));
-            pending.files.push(PendingFile {
-                staged: staged.clone(),
-                final_path: final_path.clone(),
-                promoted: false,
-            });
-            let mut source = File::open(source_path)?;
-            let mut destination = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged)?;
-            io::copy(&mut source, &mut destination)?;
-            destination.sync_all()?;
-            let staged_hash = sha256_file(&staged)?;
-            if staged_hash != *content_hash || fs::metadata(&staged)?.len() != *byte_size {
-                return Err(Error::SourceMediaChanged(source_path.clone()));
+            match content {
+                PreparedContent::Image {
+                    id,
+                    source_path,
+                    final_path,
+                    byte_size,
+                    content_hash,
+                    ..
+                }
+                | PreparedContent::Motion {
+                    id,
+                    source_path,
+                    final_path,
+                    byte_size,
+                    content_hash,
+                    ..
+                } => {
+                    pending.stage_file(
+                        staging_directory,
+                        *id,
+                        "media",
+                        source_path,
+                        final_path,
+                        Some((content_hash, *byte_size)),
+                    )?;
+                    if let PreparedContent::Motion {
+                        preview_source_path: Some(preview_source_path),
+                        preview_final_path: Some(preview_final_path),
+                        ..
+                    } = content
+                    {
+                        pending.stage_file(
+                            staging_directory,
+                            *id,
+                            "preview",
+                            preview_source_path,
+                            preview_final_path,
+                            None,
+                        )?;
+                    }
+                }
+                PreparedContent::Text { .. } => {}
             }
         }
         Ok(pending)
+    }
+
+    fn stage_file(
+        &mut self,
+        staging_directory: &Path,
+        id: Uuid,
+        suffix: &str,
+        source_path: &Path,
+        final_path: &Path,
+        integrity: Option<(&[u8], u64)>,
+    ) -> Result<()> {
+        let staged = staging_directory.join(format!("{id}.{suffix}.tmp"));
+        self.files.push(PendingFile {
+            staged: staged.clone(),
+            final_path: final_path.to_path_buf(),
+            promoted: false,
+        });
+        let mut source = File::open(source_path)?;
+        let mut destination = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged)?;
+        io::copy(&mut source, &mut destination)?;
+        destination.sync_all()?;
+        if let Some((content_hash, byte_size)) = integrity
+            && (sha256_file(&staged)? != content_hash || fs::metadata(&staged)?.len() != byte_size)
+        {
+            return Err(Error::SourceMediaChanged(source_path.to_path_buf()));
+        }
+        Ok(())
     }
 
     fn promote(&mut self) -> Result<()> {
@@ -2252,12 +2323,14 @@ struct RawCollectorItem {
     kind: String,
     text: Option<String>,
     relative_path: Option<String>,
+    preview_relative_path: Option<String>,
     width: Option<i64>,
     height: Option<i64>,
     byte_size: Option<i64>,
     image_format: Option<String>,
+    motion_format: Option<String>,
     content_hash: Vec<u8>,
-    embedding: Vec<u8>,
+    embedding: Option<Vec<u8>>,
     duplicate_kind: Option<String>,
     duplicate_target_source: Option<String>,
     duplicate_target_id: Option<String>,
@@ -2271,17 +2344,19 @@ fn map_raw_collector_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCollec
         kind: row.get(1)?,
         text: row.get(2)?,
         relative_path: row.get(3)?,
-        width: row.get(4)?,
-        height: row.get(5)?,
-        byte_size: row.get(6)?,
-        image_format: row.get(7)?,
-        content_hash: row.get(8)?,
-        embedding: row.get(9)?,
-        duplicate_kind: row.get(10)?,
-        duplicate_target_source: row.get(11)?,
-        duplicate_target_id: row.get(12)?,
-        duplicate_distance: row.get(13)?,
-        duplicate_dismissed: row.get(14)?,
+        preview_relative_path: row.get(4)?,
+        width: row.get(5)?,
+        height: row.get(6)?,
+        byte_size: row.get(7)?,
+        image_format: row.get(8)?,
+        motion_format: row.get(9)?,
+        content_hash: row.get(10)?,
+        embedding: row.get(11)?,
+        duplicate_kind: row.get(12)?,
+        duplicate_target_source: row.get(13)?,
+        duplicate_target_id: row.get(14)?,
+        duplicate_distance: row.get(15)?,
+        duplicate_dismissed: row.get(16)?,
     })
 }
 
@@ -2293,10 +2368,12 @@ impl RawCollectorItem {
             kind: self.kind,
             text: self.text,
             relative_path: self.relative_path,
+            preview_relative_path: self.preview_relative_path,
             width: self.width,
             height: self.height,
             byte_size: self.byte_size,
             image_format: self.image_format,
+            motion_format: self.motion_format,
         }
         .into_domain(storage_root)?;
         let content = match content {
@@ -2306,6 +2383,14 @@ impl RawCollectorItem {
                 height: image.height,
                 byte_size: image.byte_size,
                 format: image.format,
+            },
+            MemeContent::Motion(motion) => CollectorContent::Motion {
+                relative_path: motion.relative_path,
+                preview_relative_path: motion.preview_relative_path,
+                width: motion.width,
+                height: motion.height,
+                byte_size: motion.byte_size,
+                format: motion.format,
             },
             MemeContent::Text(text) => CollectorContent::Text { text: text.text },
         };
@@ -2336,6 +2421,22 @@ fn collector_item_into_meme_content(item: CollectorItem) -> MemeContent {
         } => MemeContent::Image(MemeImage {
             id: item.id,
             relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+        }),
+        CollectorContent::Motion {
+            relative_path,
+            preview_relative_path,
+            width,
+            height,
+            byte_size,
+            format,
+        } => MemeContent::Motion(MemeMotion {
+            id: item.id,
+            relative_path,
+            preview_relative_path,
             width,
             height,
             byte_size,
@@ -2439,10 +2540,12 @@ struct RawContent {
     kind: String,
     text: Option<String>,
     relative_path: Option<String>,
+    preview_relative_path: Option<String>,
     width: Option<i64>,
     height: Option<i64>,
     byte_size: Option<i64>,
     image_format: Option<String>,
+    motion_format: Option<String>,
 }
 
 impl RawContent {
@@ -2453,10 +2556,12 @@ impl RawContent {
                     Error::InvalidDatabase(format!("text content {} has no text", self.id))
                 })?;
                 if self.relative_path.is_some()
+                    || self.preview_relative_path.is_some()
                     || self.width.is_some()
                     || self.height.is_some()
                     || self.byte_size.is_some()
                     || self.image_format.is_some()
+                    || self.motion_format.is_some()
                 {
                     return Err(Error::InvalidDatabase(format!(
                         "text content {} contains image metadata",
@@ -2495,6 +2600,50 @@ impl RawContent {
                 Ok(MemeContent::Image(MemeImage {
                     id: self.id,
                     relative_path,
+                    width,
+                    height,
+                    byte_size,
+                    format,
+                }))
+            }
+            "motion" => {
+                if self.text.is_some() || self.image_format.is_some() {
+                    return Err(Error::InvalidDatabase(format!(
+                        "motion content {} contains incompatible metadata",
+                        self.id
+                    )));
+                }
+                let relative_path = self.relative_path.ok_or_else(|| {
+                    Error::InvalidDatabase(format!("motion content {} has no path", self.id))
+                })?;
+                let relative_path = PathBuf::from(relative_path);
+                let absolute_path = resolve_media_path(storage_root, &relative_path)?;
+                if !absolute_path.is_file() {
+                    return Err(Error::MissingMedia(absolute_path));
+                }
+                let preview_relative_path = self.preview_relative_path.map(PathBuf::from);
+                if let Some(preview_relative_path) = &preview_relative_path {
+                    let preview_path = resolve_media_path(storage_root, preview_relative_path)?;
+                    if !preview_path.is_file() {
+                        return Err(Error::MissingMedia(preview_path));
+                    }
+                }
+                let width = positive_u32(self.width, self.id, "width")?;
+                let height = positive_u32(self.height, self.id, "height")?;
+                let byte_size = positive_u64(self.byte_size, self.id, "byte size")?;
+                let format_raw = self.motion_format.ok_or_else(|| {
+                    Error::InvalidDatabase(format!("motion content {} has no format", self.id))
+                })?;
+                let format = MotionFormat::from_database_str(&format_raw).ok_or_else(|| {
+                    Error::InvalidDatabase(format!(
+                        "motion content {} has unknown format `{format_raw}`",
+                        self.id
+                    ))
+                })?;
+                Ok(MemeContent::Motion(MemeMotion {
+                    id: self.id,
+                    relative_path,
+                    preview_relative_path,
                     width,
                     height,
                     byte_size,

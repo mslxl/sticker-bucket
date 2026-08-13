@@ -370,6 +370,10 @@ enum DraftContent {
         similar_images: Vec<SimilarMemeImage>,
         collector_item_id: Option<Uuid>,
     },
+    Motion {
+        collector_item_id: Uuid,
+        preview_path: Option<PathBuf>,
+    },
     Text {
         text: String,
         collector_item_id: Option<Uuid>,
@@ -385,6 +389,21 @@ impl DraftContent {
             | Self::Text {
                 collector_item_id, ..
             } => *collector_item_id,
+            Self::Motion {
+                collector_item_id, ..
+            } => Some(*collector_item_id),
+        }
+    }
+
+    fn is_image(&self) -> bool {
+        matches!(self, Self::Image { .. } | Self::Motion { .. })
+    }
+
+    fn image_path(&self) -> Option<&Path> {
+        match self {
+            Self::Image { path, .. } => Some(path),
+            Self::Motion { preview_path, .. } => preview_path.as_deref(),
+            Self::Text { .. } => None,
         }
     }
 }
@@ -493,6 +512,7 @@ struct MemelithView {
     telegram_runtime: Option<telegram::TelegramBotHandle>,
     telegram_runtime_generation: u64,
     telegram_runtime_state: TelegramRuntimeState,
+    telegram_sticker_syncing: HashSet<Uuid>,
     telegram_token_error: Option<String>,
     telegram_token_revealed: bool,
     notice: Option<Notice>,
@@ -552,6 +572,7 @@ impl MemelithView {
             telegram_runtime: None,
             telegram_runtime_generation: 0,
             telegram_runtime_state: TelegramRuntimeState::Stopped,
+            telegram_sticker_syncing: HashSet::new(),
             telegram_token_error: None,
             telegram_token_revealed: false,
             notice: None,
@@ -646,6 +667,7 @@ impl MemelithView {
         if let Some(runtime) = self.telegram_runtime.take() {
             runtime.stop();
         }
+        self.telegram_sticker_syncing.clear();
         self.telegram_runtime_state = TelegramRuntimeState::Stopped;
     }
 
@@ -760,8 +782,44 @@ impl MemelithView {
                     self.telegram_runtime_state = TelegramRuntimeState::Running;
                 }
             }
+            telegram::TelegramBotStatus::StickerPackSyncStarted { pack_id } => {
+                self.telegram_sticker_syncing.insert(pack_id);
+            }
+            telegram::TelegramBotStatus::StickerPackSynced {
+                pack_id,
+                title,
+                added,
+                skipped,
+                announce,
+            } => {
+                self.telegram_sticker_syncing.remove(&pack_id);
+                if announce {
+                    self.notice = Some(Notice::Success(format!(
+                        "贴纸包「{title}」已更新：新增 {added} 张，跳过 {skipped} 张"
+                    )));
+                }
+                if let Err(error) = self.refresh_library() {
+                    self.notice = Some(Notice::Error(format!(
+                        "贴纸包已同步，但刷新列表失败：{error}"
+                    )));
+                }
+            }
+            telegram::TelegramBotStatus::StickerPackSyncFailed {
+                pack_id,
+                message,
+                announce,
+                terminal,
+            } => {
+                if terminal {
+                    self.telegram_sticker_syncing.remove(&pack_id);
+                }
+                if announce {
+                    self.notice = Some(Notice::Error(format!("贴纸包更新失败：{message}")));
+                }
+            }
             telegram::TelegramBotStatus::Failed(message) => {
                 self.telegram_runtime.take();
+                self.telegram_sticker_syncing.clear();
                 if self.telegram_runtime_state == TelegramRuntimeState::Stopping {
                     self.telegram_runtime_state = TelegramRuntimeState::Stopped;
                     if self.telegram_enabled
@@ -777,6 +835,7 @@ impl MemelithView {
             }
             telegram::TelegramBotStatus::Stopped => {
                 self.telegram_runtime.take();
+                self.telegram_sticker_syncing.clear();
                 self.telegram_runtime_state = TelegramRuntimeState::Stopped;
                 if self.telegram_enabled
                     && self.telegram_applied_enabled
@@ -796,6 +855,7 @@ impl MemelithView {
         match self.telegram_runtime_state {
             TelegramRuntimeState::Starting | TelegramRuntimeState::Running => {
                 self.telegram_runtime.take();
+                self.telegram_sticker_syncing.clear();
                 let message = "Bot 线程意外退出".to_owned();
                 self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
                 self.notice = Some(Notice::Error(format!("Telegram Bot 启动失败：{message}")));
@@ -803,6 +863,7 @@ impl MemelithView {
             }
             TelegramRuntimeState::Stopping => {
                 self.telegram_runtime.take();
+                self.telegram_sticker_syncing.clear();
                 self.telegram_runtime_state = TelegramRuntimeState::Stopped;
                 cx.notify();
             }
@@ -1325,6 +1386,33 @@ impl MemelithView {
                         collector_item_id: Some(item.id),
                     });
                 }
+                CollectorContent::Motion {
+                    preview_relative_path,
+                    ..
+                } => {
+                    let preview_path = match preview_relative_path {
+                        Some(relative_path) => {
+                            match MemeDatabase::resolve_media_path_from_root(
+                                storage_root,
+                                relative_path,
+                            ) {
+                                Ok(path) => Some(path),
+                                Err(error) => {
+                                    self.notice = Some(Notice::Error(format!(
+                                        "无法打开 Collector 图片：{error}"
+                                    )));
+                                    cx.notify();
+                                    return;
+                                }
+                            }
+                        }
+                        None => None,
+                    };
+                    draft.push(DraftContent::Motion {
+                        collector_item_id: item.id,
+                        preview_path,
+                    });
+                }
                 CollectorContent::Text { text } => draft.push(DraftContent::Text {
                     text: text.clone(),
                     collector_item_id: Some(item.id),
@@ -1444,6 +1532,9 @@ impl MemelithView {
             CollectorContent::Image { .. } => {
                 "删除后无法从 Collector 恢复；对应的图片文件也会一并移除。"
             }
+            CollectorContent::Motion { .. } => {
+                "删除后无法从 Collector 恢复；对应的图片文件也会一并移除。"
+            }
             CollectorContent::Text { .. } => "删除后无法从 Collector 恢复。",
         };
 
@@ -1491,14 +1582,10 @@ impl MemelithView {
             .iter()
             .position(|content| content.collector_item_id() == Some(item_id))
             .and_then(|removed_index| {
-                matches!(
-                    self.draft_contents[removed_index],
-                    DraftContent::Image { .. }
-                )
-                .then(|| {
+                self.draft_contents[removed_index].is_image().then(|| {
                     self.draft_contents[..removed_index]
                         .iter()
-                        .filter(|content| matches!(content, DraftContent::Image { .. }))
+                        .filter(|content| content.is_image())
                         .count()
                 })
             });
@@ -1528,10 +1615,8 @@ impl MemelithView {
         let image_paths = self
             .draft_contents
             .iter()
-            .filter_map(|content| match content {
-                DraftContent::Image { path, .. } => Some(path.clone()),
-                DraftContent::Text { .. } => None,
-            })
+            .filter_map(DraftContent::image_path)
+            .map(Path::to_path_buf)
             .collect::<Vec<_>>();
         if image_paths.is_empty() {
             self.notice = Some(Notice::Error("请先添加需要识别的图片".to_owned()));
@@ -1726,13 +1811,12 @@ impl MemelithView {
         if index >= self.draft_contents.len() {
             self.notice = Some(Notice::Error("要移除的内容已经不存在".to_owned()));
         } else {
-            let removed_image_index =
-                matches!(self.draft_contents[index], DraftContent::Image { .. }).then(|| {
-                    self.draft_contents[..index]
-                        .iter()
-                        .filter(|content| matches!(content, DraftContent::Image { .. }))
-                        .count()
-                });
+            let removed_image_index = self.draft_contents[index].is_image().then(|| {
+                self.draft_contents[..index]
+                    .iter()
+                    .filter(|content| content.is_image())
+                    .count()
+            });
             let removed = self.draft_contents.remove(index);
             if let Some(item_id) = removed.collector_item_id() {
                 self.selected_collector_items.remove(&item_id);
@@ -1750,7 +1834,7 @@ impl MemelithView {
         let remaining_images = self
             .draft_contents
             .iter()
-            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .filter(|content| content.is_image())
             .count();
         if remaining_images == 0 {
             self.active_draft_image = 0;
@@ -1770,7 +1854,7 @@ impl MemelithView {
         let image_count = self
             .draft_contents
             .iter()
-            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .filter(|content| content.is_image())
             .count();
         if image_count <= 1 {
             return;
@@ -1792,7 +1876,7 @@ impl MemelithView {
         let image_count = self
             .draft_contents
             .iter()
-            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .filter(|content| content.is_image())
             .count();
         if image_count <= 1 {
             return;
@@ -1865,6 +1949,9 @@ impl MemelithView {
                         source_path: path.clone(),
                     },
                     DraftContent::Text { text, .. } => NewMemeContent::Text { text: text.clone() },
+                    DraftContent::Motion { .. } => {
+                        unreachable!("motion drafts always originate from Collector")
+                    }
                 })
                 .collect();
             (
@@ -2004,6 +2091,44 @@ impl MemelithView {
         self.meme_search_input
             .update(cx, |input, cx| input.set_text(query, cx));
         self.navigate(Page::All, cx);
+    }
+
+    fn check_sticker_pack_update(&mut self, pack_id: Uuid, cx: &mut Context<Self>) {
+        if self.telegram_sticker_syncing.contains(&pack_id) {
+            return;
+        }
+        let Some(pack) = self.meme_packs.iter().find(|pack| pack.id == pack_id) else {
+            self.notice = Some(Notice::Error("MemePack 已不存在".to_owned()));
+            cx.notify();
+            return;
+        };
+        let Some(source) = pack.source.clone() else {
+            self.notice = Some(Notice::Error("该 MemePack 没有 Telegram 来源".to_owned()));
+            cx.notify();
+            return;
+        };
+        if !telegram::is_sticker_pack_source(&source) {
+            self.notice = Some(Notice::Error("该来源不是 Telegram 贴纸包链接".to_owned()));
+            cx.notify();
+            return;
+        }
+        let Some(runtime) = self.telegram_runtime.as_ref() else {
+            self.notice = Some(Notice::Error(
+                "请先在设置中启用并启动 Telegram Bot".to_owned(),
+            ));
+            cx.notify();
+            return;
+        };
+        match runtime.sync_sticker_pack(pack_id, source) {
+            Ok(()) => {
+                self.telegram_sticker_syncing.insert(pack_id);
+                self.notice = Some(Notice::Info("正在检查贴纸包更新".to_owned()));
+            }
+            Err(error) => {
+                self.notice = Some(Notice::Error(format!("无法检查贴纸包更新：{error}")));
+            }
+        }
+        cx.notify();
     }
 
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, _: &mut Context<Self>) {
@@ -2446,6 +2571,34 @@ impl MemelithView {
                         .child("无法预览")
                         .into_any_element()
                 }),
+            CollectorContent::Motion {
+                preview_relative_path,
+                ..
+            } => preview_relative_path
+                .as_ref()
+                .and_then(|relative_path| {
+                    self.storage_root.as_ref().and_then(|root| {
+                        MemeDatabase::resolve_media_path_from_root(root, relative_path).ok()
+                    })
+                })
+                .map(|path| {
+                    div()
+                        .size_full()
+                        .bg(rgba(0x3c3c4314))
+                        .child(img(path).size_full().object_fit(ObjectFit::Cover))
+                        .into_any_element()
+                })
+                .unwrap_or_else(|| {
+                    div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_sm()
+                        .text_color(rgba(LABEL_3))
+                        .child("无法预览")
+                        .into_any_element()
+                }),
             CollectorContent::Text { text } => div()
                 .size_full()
                 .p_4()
@@ -2498,6 +2651,7 @@ impl MemelithView {
                         .truncate()
                         .child(warning_label.unwrap_or_else(|| match &item.content {
                             CollectorContent::Image { .. } => "图片".to_owned(),
+                            CollectorContent::Motion { .. } => "图片".to_owned(),
                             CollectorContent::Text { .. } => "文字".to_owned(),
                         })),
                 ),
@@ -2563,10 +2717,7 @@ impl MemelithView {
     fn render_add_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let image_processing = self.analyzing_images || self.detecting_characters;
         let collector_draft = self.draft_uses_collector();
-        let has_images = self
-            .draft_contents
-            .iter()
-            .any(|content| matches!(content, DraftContent::Image { .. }));
+        let has_images = self.draft_contents.iter().any(DraftContent::is_image);
         let has_contents = !self.draft_contents.is_empty();
         let mut content_group = glass_group().flex().flex_col();
         if !has_contents && !self.composing_text {
@@ -2916,7 +3067,7 @@ impl MemelithView {
         let image_count = self
             .draft_contents
             .iter()
-            .filter(|content| matches!(content, DraftContent::Image { .. }))
+            .filter(|content| content.is_image())
             .count();
         let (draft_index, path, similar_images) = self
             .draft_contents
@@ -2927,15 +3078,37 @@ impl MemelithView {
                     path,
                     similar_images,
                     ..
-                } => Some((index, path, similar_images)),
+                } => Some((index, Some(path.as_path()), similar_images.as_slice())),
+                DraftContent::Motion { preview_path, .. } => {
+                    Some((index, preview_path.as_deref(), &[][..]))
+                }
                 DraftContent::Text { .. } => None,
             })
             .nth(self.active_draft_image)
             .expect("active draft image must refer to an existing image");
-        let file_name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
+        let file_name = path.map_or_else(
+            || "无法预览".to_owned(),
+            |path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string())
+            },
+        );
+        let preview = match path {
+            Some(path) => img(path.to_path_buf())
+                .size_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
+            None => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(rgba(LABEL_3))
+                .child("无法预览")
+                .into_any_element(),
+        };
 
         let mut gallery = div()
             .w_full()
@@ -2948,13 +3121,7 @@ impl MemelithView {
                     .h(px(360.))
                     .overflow_hidden()
                     .bg(rgba(0x3c3c430a))
-                    .child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .p_4()
-                            .child(img(path.clone()).size_full().object_fit(ObjectFit::Contain)),
-                    )
+                    .child(div().absolute().inset_0().p_4().child(preview))
                     .when(image_count > 1, |viewport| {
                         viewport.child(
                             div()
@@ -3214,6 +3381,29 @@ impl MemelithView {
                                 .into_any_element()
                         })
                 }),
+                MemeContent::Motion(motion) => {
+                    motion
+                        .preview_relative_path
+                        .as_ref()
+                        .and_then(|relative_path| {
+                            self.storage_root.as_ref().and_then(|storage_root| {
+                                MemeDatabase::resolve_media_path_from_root(
+                                    storage_root,
+                                    relative_path,
+                                )
+                                .ok()
+                                .map(|path| {
+                                    div()
+                                        .h(px(160.))
+                                        .w_full()
+                                        .overflow_hidden()
+                                        .bg(rgba(0x3c3c4314))
+                                        .child(img(path).size_full().object_fit(ObjectFit::Cover))
+                                        .into_any_element()
+                                })
+                            })
+                        })
+                }
                 MemeContent::Text(_) => None,
             })
             .or_else(|| {
@@ -3233,6 +3423,19 @@ impl MemelithView {
                             .into_any_element(),
                     ),
                     MemeContent::Image(_) => None,
+                    MemeContent::Motion(_) => Some(
+                        div()
+                            .h(px(160.))
+                            .w_full()
+                            .bg(rgba(0x3c3c4314))
+                            .text_color(rgba(LABEL_2))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("无法预览")
+                            .into_any_element(),
+                    ),
                 })
             })
             .unwrap_or_else(|| {
@@ -3338,6 +3541,13 @@ impl MemelithView {
                         |(index, pack)| {
                             let meme_count = meme_counts.get(&pack.id).copied().unwrap_or(0);
                             let pack_name = pack.name.clone();
+                            let sticker_source = pack
+                                .source
+                                .as_ref()
+                                .filter(|source| telegram::is_sticker_pack_source(source))
+                                .cloned();
+                            let pack_id = pack.id;
+                            let syncing = self.telegram_sticker_syncing.contains(&pack_id);
                             div()
                                 .flex()
                                 .flex_col()
@@ -3391,14 +3601,60 @@ impl MemelithView {
                                                                 .child(description.clone()),
                                                         )
                                                     },
+                                                )
+                                                .when_some(
+                                                    sticker_source.as_ref(),
+                                                    |element, source| {
+                                                        element.child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(rgb(ACCENT))
+                                                                .truncate()
+                                                                .child(source.clone()),
+                                                        )
+                                                    },
                                                 ),
                                         )
                                         .child(
                                             div()
                                                 .flex_none()
-                                                .text_xs()
-                                                .text_color(rgba(LABEL_2))
-                                                .child(format!("{meme_count} 个 Meme")),
+                                                .flex()
+                                                .items_center()
+                                                .gap_3()
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(rgba(LABEL_2))
+                                                        .child(format!("{meme_count} 个 Meme")),
+                                                )
+                                                .when(sticker_source.is_some(), |element| {
+                                                    element.child(
+                                                        glass_pill(SharedString::from(format!(
+                                                            "sync-sticker-pack-{pack_id}"
+                                                        )))
+                                                        .when(syncing, |button| {
+                                                            button
+                                                                .opacity(0.55)
+                                                                .cursor_default()
+                                                                .tab_stop(false)
+                                                        })
+                                                        .when(!syncing, |button| {
+                                                            button.on_click(cx.listener(
+                                                                move |view, _, _, cx| {
+                                                                    cx.stop_propagation();
+                                                                    view.check_sticker_pack_update(
+                                                                        pack_id, cx,
+                                                                    );
+                                                                },
+                                                            ))
+                                                        })
+                                                        .child(if syncing {
+                                                            "检查中…"
+                                                        } else {
+                                                            "检查更新"
+                                                        }),
+                                                    )
+                                                }),
                                         ),
                                 )
                         },

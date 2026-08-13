@@ -642,7 +642,7 @@ fn enforces_embedding_compatibility_schema_version_and_media_integrity() {
     assert!(matches!(
         MemeDatabase::open(&storage, FakeEmbeddingProvider::valid()),
         Err(Error::UnsupportedSchemaVersion {
-            expected: 2,
+            expected: 1,
             actual: 99
         })
     ));

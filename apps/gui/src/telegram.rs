@@ -3,14 +3,21 @@ use std::{
     fs,
     io::Cursor,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage, imageops};
 use memelith_clip::{ClipModel, ExecutionPolicy};
-use memelith_core::{COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE, MemeDatabase};
+use memelith_core::{
+    COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE, MemeDatabase, MotionFormat, NewMeme, NewMemeContent,
+    NewMemePack,
+};
 use reqwest::blocking::{Client, multipart};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
@@ -23,6 +30,8 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_SIMILAR_PER_PAGE: usize = 3;
 const PREVIEW_TILE_SIZE: u32 = 480;
 const PREVIEW_GUTTER: u32 = 16;
+const STICKER_AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const TELEGRAM_STICKER_LINK_PREFIX: &str = "https://t.me/addstickers/";
 
 #[derive(Debug, Error)]
 enum TelegramError {
@@ -58,19 +67,52 @@ enum TelegramError {
 
     #[error("Telegram message did not include a sender")]
     MissingSender,
+
+    #[error("Telegram sticker pack reference is invalid")]
+    InvalidStickerPackReference,
+
+    #[error("Telegram sticker pack `{0}` is already being synchronized")]
+    StickerPackAlreadySyncing(String),
+
+    #[error("Telegram sticker file identifier is invalid")]
+    InvalidStickerFileIdentifier,
+
+    #[error("Telegram Bot is stopping")]
+    Stopping,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TelegramBotStatus {
     Starting,
     Running,
+    StickerPackSyncStarted {
+        pack_id: Uuid,
+    },
+    StickerPackSynced {
+        pack_id: Uuid,
+        title: String,
+        added: usize,
+        skipped: usize,
+        announce: bool,
+    },
+    StickerPackSyncFailed {
+        pack_id: Uuid,
+        message: String,
+        announce: bool,
+        terminal: bool,
+    },
     Failed(String),
     Stopped,
 }
 
 pub struct TelegramBotHandle {
     stop: Option<mpsc::Sender<()>>,
+    commands: mpsc::Sender<TelegramBotCommand>,
     thread: Option<JoinHandle<()>>,
+}
+
+enum TelegramBotCommand {
+    SyncStickerPack { pack_id: Uuid, source: String },
 }
 
 impl TelegramBotHandle {
@@ -80,12 +122,20 @@ impl TelegramBotHandle {
         model_directory: PathBuf,
     ) -> std::io::Result<(Self, mpsc::Receiver<TelegramBotStatus>)> {
         let (stop, stop_receiver) = mpsc::channel();
+        let (commands, command_receiver) = mpsc::channel();
         let (status, status_receiver) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("memelith-telegram".to_owned())
             .spawn(move || {
                 let _ = status.send(TelegramBotStatus::Starting);
-                match run_bot(storage_root, token, model_directory, stop_receiver, &status) {
+                match run_bot(
+                    storage_root,
+                    token,
+                    model_directory,
+                    stop_receiver,
+                    command_receiver,
+                    &status,
+                ) {
                     Ok(()) => {
                         let _ = status.send(TelegramBotStatus::Stopped);
                     }
@@ -99,6 +149,7 @@ impl TelegramBotHandle {
         Ok((
             Self {
                 stop: Some(stop),
+                commands,
                 thread: Some(thread),
             },
             status_receiver,
@@ -114,6 +165,12 @@ impl TelegramBotHandle {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
+    }
+
+    pub fn sync_sticker_pack(&self, pack_id: Uuid, source: String) -> Result<(), String> {
+        self.commands
+            .send(TelegramBotCommand::SyncStickerPack { pack_id, source })
+            .map_err(|_| "Telegram Bot 线程未运行".to_owned())
     }
 
     fn join(&mut self) {
@@ -137,6 +194,9 @@ struct BotState {
     api: TelegramApi,
     database: Mutex<MemeDatabase>,
     storage_root: PathBuf,
+    status: mpsc::Sender<TelegramBotStatus>,
+    stopping: AtomicBool,
+    syncing_sticker_sets: Mutex<HashSet<String>>,
     pending: Mutex<HashMap<Uuid, PendingOperation>>,
     pending_deletions: Mutex<HashSet<(i64, i64)>>,
     workers: Mutex<Vec<JoinHandle<()>>>,
@@ -149,8 +209,30 @@ struct PendingOperation {
     message_id: i64,
     user_id: i64,
     source_path: PathBuf,
+    preview_path: Option<PathBuf>,
+    media: IncomingMedia,
     similar_paths: Vec<PathBuf>,
+    duplicate_count: usize,
     page: usize,
+}
+
+impl PendingOperation {
+    fn preview_path(&self) -> Option<&Path> {
+        match self.media {
+            IncomingMedia::Image => Some(&self.source_path),
+            IncomingMedia::Motion { .. } => self.preview_path.as_deref(),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum IncomingMedia {
+    Image,
+    Motion {
+        width: u32,
+        height: u32,
+        format: MotionFormat,
+    },
 }
 
 #[derive(Clone)]
@@ -213,6 +295,10 @@ impl TelegramApi {
         self.call("getFile", json!({ "file_id": file_id }))
     }
 
+    fn get_sticker_set(&self, name: &str) -> Result<StickerSet, TelegramError> {
+        self.call("getStickerSet", json!({ "name": name }))
+    }
+
     fn download_file(&self, file_path: &str) -> Result<Vec<u8>, TelegramError> {
         let token_url = self
             .base_url
@@ -230,6 +316,18 @@ impl TelegramApi {
 
     fn send_message(&self, chat_id: i64, text: &str) -> Result<Message, TelegramError> {
         self.call("sendMessage", json!({"chat_id": chat_id, "text": text}))
+    }
+
+    fn send_confirmation(
+        &self,
+        chat_id: i64,
+        text: &str,
+        markup: &InlineKeyboardMarkup,
+    ) -> Result<Message, TelegramError> {
+        self.call(
+            "sendMessage",
+            json!({"chat_id": chat_id, "text": text, "reply_markup": markup}),
+        )
     }
 
     fn send_preview(
@@ -320,6 +418,7 @@ fn run_bot(
     token: String,
     model_directory: PathBuf,
     stop_receiver: mpsc::Receiver<()>,
+    command_receiver: mpsc::Receiver<TelegramBotCommand>,
     status: &mpsc::Sender<TelegramBotStatus>,
 ) -> Result<(), TelegramError> {
     let api = TelegramApi::new(&token)?;
@@ -337,6 +436,9 @@ fn run_bot(
         api,
         database: Mutex::new(database),
         storage_root,
+        status: status.clone(),
+        stopping: AtomicBool::new(false),
+        syncing_sticker_sets: Mutex::new(HashSet::new()),
         pending: Mutex::new(HashMap::new()),
         pending_deletions: Mutex::new(HashSet::new()),
         workers: Mutex::new(Vec::new()),
@@ -344,12 +446,18 @@ fn run_bot(
     let _ = status.send(TelegramBotStatus::Running);
 
     let mut offset = 0_i64;
+    let mut next_auto_sync = Instant::now();
     loop {
         if stop_receiver.try_recv().is_ok() {
             break;
         }
         reap_finished_workers(&state);
         retry_pending_deletions(&state);
+        drain_commands(&state, &command_receiver)?;
+        if Instant::now() >= next_auto_sync {
+            schedule_automatic_sticker_syncs(&state)?;
+            next_auto_sync = Instant::now() + STICKER_AUTO_SYNC_INTERVAL;
+        }
         match state.api.get_updates(offset) {
             Ok(updates) => {
                 for update in updates {
@@ -410,6 +518,7 @@ fn runtime_error_message(error: &TelegramError) -> String {
 }
 
 fn shutdown_state(state: &Arc<BotState>) {
+    state.stopping.store(true, Ordering::Release);
     let workers = match state.workers.lock() {
         Ok(mut workers) => std::mem::take(&mut *workers),
         Err(_) => {
@@ -427,6 +536,9 @@ fn shutdown_state(state: &Arc<BotState>) {
         Ok(mut pending) => {
             for operation in pending.drain().map(|(_, operation)| operation) {
                 remove_temp_file(&operation.source_path);
+                if let Some(preview_path) = operation.preview_path {
+                    remove_temp_file(&preview_path);
+                }
             }
         }
         Err(_) => {
@@ -461,18 +573,356 @@ fn reap_finished_workers(state: &Arc<BotState>) {
     }
 }
 
+fn drain_commands(
+    state: &Arc<BotState>,
+    commands: &mpsc::Receiver<TelegramBotCommand>,
+) -> Result<(), TelegramError> {
+    while let Ok(command) = commands.try_recv() {
+        match command {
+            TelegramBotCommand::SyncStickerPack { pack_id, source } => {
+                if let Err(error) = spawn_sticker_sync(Arc::clone(state), pack_id, source, true) {
+                    eprintln!("Memelith Telegram failed to schedule sticker sync: {error}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn schedule_automatic_sticker_syncs(state: &Arc<BotState>) -> Result<(), TelegramError> {
+    let sources = {
+        let database = state
+            .database
+            .lock()
+            .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
+        database
+            .list_meme_packs()?
+            .into_iter()
+            .filter_map(|pack| {
+                let source = pack.source?;
+                parse_sticker_pack_reference(&source)
+                    .ok()
+                    .map(|_| (pack.id, source))
+            })
+            .collect::<Vec<_>>()
+    };
+    for (pack_id, source) in sources {
+        if let Err(error) = spawn_sticker_sync(Arc::clone(state), pack_id, source, false) {
+            eprintln!("Memelith Telegram failed to schedule automatic sticker sync: {error}");
+        }
+    }
+    Ok(())
+}
+
+fn spawn_sticker_sync(
+    state: Arc<BotState>,
+    pack_id: Uuid,
+    source: String,
+    announce: bool,
+) -> Result<(), TelegramError> {
+    let pack_name = parse_sticker_pack_reference(&source)?;
+    let sync_key = sticker_pack_sync_key(&pack_name);
+    {
+        let mut syncing = state
+            .syncing_sticker_sets
+            .lock()
+            .map_err(|_| TelegramError::Api("sticker sync lock was poisoned".to_owned()))?;
+        if !syncing.insert(sync_key.clone()) {
+            if announce {
+                let _ = state.status.send(TelegramBotStatus::StickerPackSyncFailed {
+                    pack_id,
+                    message: "该贴纸包正在检查更新".to_owned(),
+                    announce: true,
+                    terminal: false,
+                });
+            }
+            return Ok(());
+        }
+    }
+    let _ = state
+        .status
+        .send(TelegramBotStatus::StickerPackSyncStarted { pack_id });
+    let worker_state = Arc::clone(&state);
+    let worker = match thread::Builder::new()
+        .name("memelith-telegram-sticker-sync".to_owned())
+        .spawn(move || {
+            let result = sync_sticker_pack(&worker_state, pack_id, &pack_name);
+            if let Ok(mut syncing) = worker_state.syncing_sticker_sets.lock() {
+                syncing.remove(&sync_key);
+            }
+            match result {
+                Ok((title, added, skipped)) => {
+                    let _ = worker_state
+                        .status
+                        .send(TelegramBotStatus::StickerPackSynced {
+                            pack_id,
+                            title,
+                            added,
+                            skipped,
+                            announce,
+                        });
+                }
+                Err(error) => {
+                    eprintln!("Memelith Telegram sticker sync failed: {error}");
+                    let _ = worker_state
+                        .status
+                        .send(TelegramBotStatus::StickerPackSyncFailed {
+                            pack_id,
+                            message: error.to_string(),
+                            announce,
+                            terminal: true,
+                        });
+                }
+            }
+        }) {
+        Ok(worker) => worker,
+        Err(error) => {
+            state
+                .syncing_sticker_sets
+                .lock()
+                .map_err(|_| TelegramError::Api("sticker sync lock was poisoned".to_owned()))?
+                .remove(&sticker_pack_sync_key(&parse_sticker_pack_reference(
+                    &source,
+                )?));
+            let message = error.to_string();
+            let _ = state.status.send(TelegramBotStatus::StickerPackSyncFailed {
+                pack_id,
+                message: message.clone(),
+                announce,
+                terminal: true,
+            });
+            return Err(TelegramError::Io(std::io::Error::other(message)));
+        }
+    };
+    state
+        .workers
+        .lock()
+        .map_err(|_| TelegramError::Api("worker lock was poisoned".to_owned()))?
+        .push(worker);
+    Ok(())
+}
+
+fn sync_sticker_pack(
+    state: &Arc<BotState>,
+    pack_id: Uuid,
+    pack_name: &str,
+) -> Result<(String, usize, usize), TelegramError> {
+    let sticker_set = state.api.get_sticker_set(pack_name)?;
+    sync_sticker_set(state, pack_id, sticker_set)
+}
+
+fn sync_sticker_set(
+    state: &Arc<BotState>,
+    pack_id: Uuid,
+    sticker_set: StickerSet,
+) -> Result<(String, usize, usize), TelegramError> {
+    let mut added = 0;
+    let mut skipped = 0;
+    let import_directory = state.storage_root.join(".telegram/stickers");
+    fs::create_dir_all(&import_directory)?;
+    for sticker in sticker_set.stickers {
+        if state.stopping.load(Ordering::Acquire) {
+            return Err(TelegramError::Stopping);
+        }
+        let file_id = &sticker.file_id;
+        let file = state.api.get_file(file_id)?;
+        let file_path = file.file_path.ok_or(TelegramError::MissingFilePath)?;
+        let extension = Path::new(&file_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("webp");
+        if !is_safe_sticker_file_identifier(&sticker.file_unique_id) {
+            return Err(TelegramError::InvalidStickerFileIdentifier);
+        }
+        let source_path = import_directory.join(format!("{}.{extension}", sticker.file_unique_id));
+        if !source_path.is_file() {
+            let bytes = state.api.download_file(&file_path)?;
+            fs::write(&source_path, bytes)?;
+        }
+        let mut database = state
+            .database
+            .lock()
+            .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
+        if database
+            .find_meme_with_media_in_pack(pack_id, &source_path)?
+            .is_some()
+        {
+            skipped += 1;
+            continue;
+        }
+        let new_content = if sticker.is_animated || sticker.is_video {
+            let preview = sticker
+                .thumbnail
+                .as_ref()
+                .map(|thumbnail| -> Result<_, TelegramError> {
+                    let preview_file = state.api.get_file(&thumbnail.file_id)?;
+                    let preview_path = preview_file
+                        .file_path
+                        .ok_or(TelegramError::MissingFilePath)?;
+                    let preview_extension = Path::new(&preview_path)
+                        .extension()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("jpg");
+                    let preview_path_on_disk = import_directory.join(format!(
+                        "{}.preview.{preview_extension}",
+                        sticker.file_unique_id
+                    ));
+                    if !preview_path_on_disk.is_file() {
+                        fs::write(
+                            &preview_path_on_disk,
+                            state.api.download_file(&preview_path)?,
+                        )?;
+                    }
+                    Ok((preview_path_on_disk, thumbnail.width, thumbnail.height))
+                })
+                .transpose()?;
+            let preview_path = preview.map(|(path, _, _)| path);
+            NewMemeContent::Motion {
+                source_path: source_path.clone(),
+                preview_path,
+                width: sticker.width,
+                height: sticker.height,
+                format: if sticker.is_animated {
+                    MotionFormat::Tgs
+                } else {
+                    MotionFormat::WebM
+                },
+            }
+        } else {
+            NewMemeContent::Image {
+                source_path: source_path.clone(),
+            }
+        };
+        database.create_meme(
+            pack_id,
+            NewMeme {
+                name: sticker.emoji.filter(|emoji| !emoji.trim().is_empty()),
+                description: None,
+                contents: vec![new_content],
+            },
+        )?;
+        added += 1;
+    }
+    Ok((sticker_set.title, added, skipped))
+}
+
+fn parse_sticker_pack_reference(source: &str) -> Result<String, TelegramError> {
+    let source = source.trim();
+    let name = source
+        .strip_prefix(TELEGRAM_STICKER_LINK_PREFIX)
+        .or_else(|| source.strip_prefix("http://t.me/addstickers/"))
+        .or_else(|| source.strip_prefix("https://telegram.me/addstickers/"))
+        .or_else(|| source.strip_prefix("http://telegram.me/addstickers/"))
+        .ok_or(TelegramError::InvalidStickerPackReference)?
+        .trim_matches('/');
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return Err(TelegramError::InvalidStickerPackReference);
+    }
+    Ok(name.to_owned())
+}
+
+fn sticker_pack_sync_key(name: &str) -> String {
+    name.to_ascii_lowercase()
+}
+
+fn is_safe_sticker_file_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+}
+
+pub fn is_sticker_pack_source(source: &str) -> bool {
+    parse_sticker_pack_reference(source).is_ok()
+}
+
 fn handle_update(state: Arc<BotState>, update: Update) -> Result<(), TelegramError> {
     if let Some(callback) = update.callback_query {
         return handle_callback(state, callback);
     }
     if let Some(message) = update.message {
-        let Some(photo) = largest_photo(&message.photo) else {
+        let sticker_reference = message
+            .sticker
+            .as_ref()
+            .and_then(|sticker| sticker.set_name.as_deref())
+            .map(|name| StickerPackReference {
+                name: name.to_owned(),
+                source: format!("{TELEGRAM_STICKER_LINK_PREFIX}{name}"),
+            });
+        let text_reference = message
+            .text
+            .as_deref()
+            .or(message.caption.as_deref())
+            .and_then(find_sticker_pack_reference);
+        if let Some(reference) = sticker_reference.or(text_reference) {
+            let chat_id = message.chat.id;
+            let message_id = message.message_id;
+            match import_sticker_pack(&state, &reference) {
+                Ok((pack_id, title, added, skipped)) => {
+                    let _ = state.status.send(TelegramBotStatus::StickerPackSynced {
+                        pack_id,
+                        title: title.clone(),
+                        added,
+                        skipped,
+                        announce: false,
+                    });
+                    delete_message_or_queue(&state, chat_id, message_id)?;
+                    state.api.send_message(
+                        chat_id,
+                        &format!("已同步贴纸包「{title}」：新增 {added} 张，跳过 {skipped} 张。"),
+                    )?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    log_api_result(
+                        "send sticker pack failure message",
+                        state
+                            .api
+                            .send_message(chat_id, &format!("贴纸包处理失败：{error}")),
+                    );
+                    return Err(error);
+                }
+            }
+        }
+        let chat_id = message.chat.id;
+        let incoming = if let Some(photo) = largest_photo(&message.photo) {
+            Some(IncomingTelegramMedia::Image {
+                file_id: photo.file_id,
+            })
+        } else if let Some(animation) = &message.animation {
+            Some(IncomingTelegramMedia::Animation {
+                file_id: animation.file_id.clone(),
+                thumbnail_file_id: animation
+                    .thumbnail
+                    .as_ref()
+                    .map(|thumbnail| thumbnail.file_id.clone()),
+                width: animation.width,
+                height: animation.height,
+            })
+        } else {
+            message
+                .video
+                .as_ref()
+                .map(|video| IncomingTelegramMedia::Video {
+                    file_id: video.file_id.clone(),
+                    thumbnail_file_id: video
+                        .thumbnail
+                        .as_ref()
+                        .map(|thumbnail| thumbnail.file_id.clone()),
+                    width: video.width,
+                    height: video.height,
+                })
+        };
+        let Some(incoming) = incoming else {
             return Ok(());
         };
-        let chat_id = message.chat.id;
-        if let Err(error) = handle_photo(Arc::clone(&state), message, photo) {
+        if let Err(error) = handle_media(Arc::clone(&state), message, incoming) {
             log_api_result(
-                "send image failure message",
+                "send media failure message",
                 state
                     .api
                     .send_message(chat_id, &format!("图片处理失败：{error}")),
@@ -483,27 +933,194 @@ fn handle_update(state: Arc<BotState>, update: Update) -> Result<(), TelegramErr
     Ok(())
 }
 
-fn handle_photo(
+fn import_sticker_pack(
+    state: &Arc<BotState>,
+    reference: &StickerPackReference,
+) -> Result<(Uuid, String, usize, usize), TelegramError> {
+    let sync_key = sticker_pack_sync_key(&reference.name);
+    {
+        let mut syncing = state
+            .syncing_sticker_sets
+            .lock()
+            .map_err(|_| TelegramError::Api("sticker sync lock was poisoned".to_owned()))?;
+        if !syncing.insert(sync_key.clone()) {
+            return Err(TelegramError::StickerPackAlreadySyncing(
+                reference.name.clone(),
+            ));
+        }
+    }
+    let mut active_pack_id = None;
+    let result: Result<(Uuid, String, usize, usize), TelegramError> = (|| {
+        let sticker_set = state.api.get_sticker_set(&reference.name)?;
+        let pack_id = {
+            let mut database = state
+                .database
+                .lock()
+                .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
+            let existing = database.list_meme_packs()?.into_iter().find(|pack| {
+                pack.source
+                    .as_deref()
+                    .and_then(|source| parse_sticker_pack_reference(source).ok())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(&sticker_set.name))
+            });
+            match existing {
+                Some(pack) => pack.id,
+                None => {
+                    database
+                        .create_meme_pack(NewMemePack {
+                            name: sticker_set.title.clone(),
+                            description: Some(
+                                "从 Telegram 贴纸包自动同步；动画与视频贴纸保存为预览图".to_owned(),
+                            ),
+                            author: None,
+                            source: Some(reference.source.clone()),
+                        })?
+                        .id
+                }
+            }
+        };
+        active_pack_id = Some(pack_id);
+        let _ = state
+            .status
+            .send(TelegramBotStatus::StickerPackSyncStarted { pack_id });
+        let (title, added, skipped) = sync_sticker_set(state, pack_id, sticker_set)?;
+        Ok((pack_id, title, added, skipped))
+    })();
+    state
+        .syncing_sticker_sets
+        .lock()
+        .map_err(|_| TelegramError::Api("sticker sync lock was poisoned".to_owned()))?
+        .remove(&sync_key);
+    if let (Some(pack_id), Err(error)) = (active_pack_id, &result) {
+        let _ = state.status.send(TelegramBotStatus::StickerPackSyncFailed {
+            pack_id,
+            message: error.to_string(),
+            announce: false,
+            terminal: true,
+        });
+    }
+    result
+}
+
+struct StickerPackReference {
+    name: String,
+    source: String,
+}
+
+fn find_sticker_pack_reference(text: &str) -> Option<StickerPackReference> {
+    text.split_whitespace().find_map(|part| {
+        let source = part.trim_matches(|character: char| {
+            matches!(
+                character,
+                '<' | '>' | '(' | ')' | '[' | ']' | '"' | '\'' | ',' | '。'
+            )
+        });
+        parse_sticker_pack_reference(source)
+            .ok()
+            .map(|name| StickerPackReference {
+                name,
+                source: source.to_owned(),
+            })
+    })
+}
+
+enum IncomingTelegramMedia {
+    Image {
+        file_id: String,
+    },
+    Animation {
+        file_id: String,
+        thumbnail_file_id: Option<String>,
+        width: u32,
+        height: u32,
+    },
+    Video {
+        file_id: String,
+        thumbnail_file_id: Option<String>,
+        width: u32,
+        height: u32,
+    },
+}
+
+fn handle_media(
     state: Arc<BotState>,
     message: Message,
-    photo: PhotoSize,
+    incoming: IncomingTelegramMedia,
 ) -> Result<(), TelegramError> {
     let sender = message.from.as_ref().ok_or(TelegramError::MissingSender)?;
-    let file = state.api.get_file(&photo.file_id)?;
+    let (file_id, thumbnail_file_id, dimensions, animation) = match incoming {
+        IncomingTelegramMedia::Image { file_id } => (file_id, None, None, false),
+        IncomingTelegramMedia::Animation {
+            file_id,
+            thumbnail_file_id,
+            width,
+            height,
+        } => (file_id, thumbnail_file_id, Some((width, height)), true),
+        IncomingTelegramMedia::Video {
+            file_id,
+            thumbnail_file_id,
+            width,
+            height,
+        } => (file_id, thumbnail_file_id, Some((width, height)), false),
+    };
+    let file = state.api.get_file(&file_id)?;
     let file_path = file.file_path.ok_or(TelegramError::MissingFilePath)?;
     let bytes = state.api.download_file(&file_path)?;
     let incoming_directory = state.storage_root.join(".telegram/incoming");
     fs::create_dir_all(&incoming_directory)?;
-    let source_path = incoming_directory.join(format!("{}.image", Uuid::new_v4()));
+    let extension = Path::new(&file_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or(if dimensions.is_some() { "mp4" } else { "image" });
+    let source_path = incoming_directory.join(format!("{}.{extension}", Uuid::new_v4()));
     let mut source_file = TempFileGuard::new(source_path);
     fs::write(source_file.path(), bytes)?;
+
+    let media = match dimensions {
+        None => IncomingMedia::Image,
+        Some(_) if extension.eq_ignore_ascii_case("gif") => IncomingMedia::Image,
+        Some((width, height)) => IncomingMedia::Motion {
+            width,
+            height,
+            format: if extension.eq_ignore_ascii_case("webm") {
+                MotionFormat::WebM
+            } else if animation || extension.eq_ignore_ascii_case("mp4") {
+                MotionFormat::Mp4
+            } else {
+                return Err(TelegramError::Api(format!(
+                    "不支持 Telegram 媒体格式：{extension}"
+                )));
+            },
+        },
+    };
+    let mut preview_file = thumbnail_file_id
+        .map(|thumbnail_file_id| -> Result<_, TelegramError> {
+            let thumbnail = state.api.get_file(&thumbnail_file_id)?;
+            let thumbnail_path = thumbnail.file_path.ok_or(TelegramError::MissingFilePath)?;
+            let preview_path = incoming_directory.join(format!("{}.preview", Uuid::new_v4()));
+            let preview_file = TempFileGuard::new(preview_path);
+            fs::write(
+                preview_file.path(),
+                state.api.download_file(&thumbnail_path)?,
+            )?;
+            Ok(preview_file)
+        })
+        .transpose()?;
+    let preview_path = match &media {
+        IncomingMedia::Image => Some(source_file.path()),
+        IncomingMedia::Motion { .. } => preview_file.as_ref().map(TempFileGuard::path),
+    };
 
     let duplicate_result = {
         let mut database = state
             .database
             .lock()
             .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
-        database.find_image_duplicates(source_file.path(), COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE)
+        database.find_media_duplicates(
+            source_file.path(),
+            preview_path,
+            COLLECTOR_DUPLICATE_MAX_COSINE_DISTANCE,
+        )
     };
     let duplicates = duplicate_result?;
 
@@ -512,7 +1129,7 @@ fn handle_photo(
             .database
             .lock()
             .map_err(|_| TelegramError::Api("database lock was poisoned".to_owned()))?;
-        database.collect_image(source_file.path())?;
+        collect_incoming_media(&mut database, &media, source_file.path(), preview_path)?;
         drop(database);
         if !delete_message_or_queue(&state, message.chat.id, message.message_id)? {
             log_api_result(
@@ -528,11 +1145,9 @@ fn handle_photo(
 
     let similar_paths = match duplicates
         .iter()
-        .map(|duplicate| {
-            MemeDatabase::resolve_media_path_from_root(
-                &state.storage_root,
-                &duplicate.relative_path,
-            )
+        .filter_map(|duplicate| duplicate.preview_relative_path.as_ref())
+        .map(|relative_path| {
+            MemeDatabase::resolve_media_path_from_root(&state.storage_root, relative_path)
         })
         .collect::<Result<Vec<_>, _>>()
     {
@@ -548,15 +1163,31 @@ fn handle_photo(
         message_id: 0,
         user_id: sender.id,
         source_path: source_file.path().to_owned(),
+        preview_path: preview_file
+            .as_ref()
+            .map(|preview_file| preview_file.path().to_path_buf()),
+        media,
         similar_paths,
+        duplicate_count: duplicates.len(),
         page: 0,
     };
-    let preview = render_preview(&pending)?;
-    let caption = preview_caption(&pending, duplicates.len());
     let markup = preview_markup(&pending);
-    let sent = state
-        .api
-        .send_preview(message.chat.id, preview, &caption, &markup)?;
+    let sent = if pending.preview_path().is_some() {
+        let preview = render_preview(&pending)?;
+        let caption = preview_caption(&pending);
+        state
+            .api
+            .send_preview(message.chat.id, preview, &caption, &markup)?
+    } else {
+        state.api.send_confirmation(
+            message.chat.id,
+            &format!(
+                "检测到 {} 张重复图片，但当前图片无法预览。是否仍然添加到 Collector？",
+                pending.duplicate_count
+            ),
+            &markup,
+        )?
+    };
     let mut pending = pending;
     pending.message_id = sent.message_id;
     let pending_result = state
@@ -579,6 +1210,9 @@ fn handle_photo(
     operations.insert(operation_id, pending);
     drop(operations);
     source_file.disarm();
+    if let Some(preview_file) = preview_file.as_mut() {
+        preview_file.disarm();
+    }
     delete_message_or_queue(&state, message.chat.id, message.message_id)?;
     Ok(())
 }
@@ -644,12 +1278,15 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
             let operation = operations
                 .get_mut(&operation_id)
                 .ok_or(TelegramError::InvalidCallback)?;
+            if operation.preview_path().is_none() {
+                return Err(TelegramError::InvalidCallback);
+            }
             let page = page.ok_or(TelegramError::InvalidCallback)?;
             operation.page = page.min(page_count(operation.similar_paths.len()).saturating_sub(1));
             operation.clone()
         };
         let preview = render_preview(&pending)?;
-        let caption = preview_caption(&pending, pending.similar_paths.len());
+        let caption = preview_caption(&pending);
         let markup = preview_markup(&pending);
         state.api.edit_preview(
             pending.chat_id,
@@ -669,7 +1306,12 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
         .ok_or(TelegramError::InvalidCallback)?;
     if action == "keep" {
         let collect_result = match state.database.lock() {
-            Ok(mut database) => database.collect_image(&pending.source_path),
+            Ok(mut database) => collect_incoming_media(
+                &mut database,
+                &pending.media,
+                &pending.source_path,
+                pending.preview_path.as_deref(),
+            ),
             Err(_) => Err(memelith_core::Error::InvalidDatabase(
                 "database lock was poisoned".to_owned(),
             )),
@@ -693,6 +1335,9 @@ fn handle_callback(state: Arc<BotState>, callback: CallbackQuery) -> Result<(), 
         return Err(TelegramError::InvalidCallback);
     }
     remove_temp_file(&pending.source_path);
+    if let Some(preview_path) = &pending.preview_path {
+        remove_temp_file(preview_path);
+    }
     delete_message_or_queue(&state, pending.chat_id, pending.message_id)?;
     Ok(())
 }
@@ -716,6 +1361,28 @@ fn parse_callback(data: &str) -> Result<(Uuid, &str, Option<usize>), TelegramErr
         return Err(TelegramError::InvalidCallback);
     }
     Ok((operation_id, action, page))
+}
+
+fn collect_incoming_media(
+    database: &mut MemeDatabase,
+    media: &IncomingMedia,
+    source_path: &Path,
+    preview_path: Option<&Path>,
+) -> memelith_core::Result<memelith_core::CollectorItem> {
+    match media {
+        IncomingMedia::Image => database.collect_image(source_path),
+        IncomingMedia::Motion {
+            width,
+            height,
+            format,
+        } => database.collect_motion(
+            source_path,
+            preview_path.map(Path::to_path_buf),
+            *width,
+            *height,
+            *format,
+        ),
+    }
 }
 
 fn render_preview(operation: &PendingOperation) -> Result<Vec<u8>, TelegramError> {
@@ -750,7 +1417,9 @@ fn preview_paths(operation: &PendingOperation) -> Vec<PathBuf> {
     let start = operation.page.saturating_mul(MAX_SIMILAR_PER_PAGE);
     let end = (start + MAX_SIMILAR_PER_PAGE).min(operation.similar_paths.len());
     let mut paths = Vec::with_capacity(end.saturating_sub(start) + 1);
-    paths.push(operation.source_path.clone());
+    if let Some(preview_path) = operation.preview_path() {
+        paths.push(preview_path.to_path_buf());
+    }
     paths.extend(operation.similar_paths[start..end].iter().cloned());
     paths
 }
@@ -759,9 +1428,10 @@ fn page_count(similar_count: usize) -> usize {
     similar_count.div_ceil(MAX_SIMILAR_PER_PAGE).max(1)
 }
 
-fn preview_caption(operation: &PendingOperation, total: usize) -> String {
+fn preview_caption(operation: &PendingOperation) -> String {
     format!(
-        "检测到 {total} 张相似图片。第 {} / {} 页，请选择是否仍然添加到 Collector。",
+        "检测到 {} 张相似图片。第 {} / {} 页，请选择是否仍然添加到 Collector。",
+        operation.duplicate_count,
         operation.page + 1,
         page_count(operation.similar_paths.len())
     )
@@ -770,7 +1440,7 @@ fn preview_caption(operation: &PendingOperation, total: usize) -> String {
 fn preview_markup(operation: &PendingOperation) -> InlineKeyboardMarkup {
     let pages = page_count(operation.similar_paths.len());
     let mut rows = Vec::new();
-    if pages > 1 {
+    if operation.preview_path().is_some() && pages > 1 {
         let mut navigation = Vec::new();
         if operation.page > 0 {
             navigation.push(InlineKeyboardButton {
@@ -936,7 +1606,17 @@ struct Message {
     #[serde(default)]
     from: Option<User>,
     #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    caption: Option<String>,
+    #[serde(default)]
     photo: Vec<PhotoSize>,
+    #[serde(default)]
+    animation: Option<Animation>,
+    #[serde(default)]
+    video: Option<Video>,
+    #[serde(default)]
+    sticker: Option<Sticker>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -955,6 +1635,49 @@ struct PhotoSize {
     width: u32,
     height: u32,
     file_size: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Animation {
+    file_id: String,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    thumbnail: Option<PhotoSize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Video {
+    file_id: String,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    thumbnail: Option<PhotoSize>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Sticker {
+    file_id: String,
+    file_unique_id: String,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    emoji: Option<String>,
+    #[serde(default)]
+    set_name: Option<String>,
+    #[serde(default)]
+    is_animated: bool,
+    #[serde(default)]
+    is_video: bool,
+    #[serde(default)]
+    thumbnail: Option<PhotoSize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StickerSet {
+    name: String,
+    title: String,
+    stickers: Vec<Sticker>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -23,6 +23,7 @@ pub struct Meme {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MemeContent {
     Image(MemeImage),
+    Motion(MemeMotion),
     Text(MemeText),
 }
 
@@ -30,6 +31,7 @@ impl MemeContent {
     pub fn id(&self) -> Uuid {
         match self {
             Self::Image(image) => image.id,
+            Self::Motion(motion) => motion.id,
             Self::Text(text) => text.id,
         }
     }
@@ -43,6 +45,17 @@ pub struct MemeImage {
     pub height: u32,
     pub byte_size: u64,
     pub format: ImageFormat,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemeMotion {
+    pub id: Uuid,
+    pub relative_path: PathBuf,
+    pub preview_relative_path: Option<PathBuf>,
+    pub width: u32,
+    pub height: u32,
+    pub byte_size: u64,
+    pub format: MotionFormat,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,7 +78,7 @@ pub struct ImageDuplicate {
     pub source: CollectorDuplicateSource,
     pub meme_id: Option<Uuid>,
     pub meme_name: Option<String>,
-    pub relative_path: PathBuf,
+    pub preview_relative_path: Option<PathBuf>,
     pub cosine_distance: Option<f32>,
 }
 
@@ -91,9 +104,47 @@ pub enum CollectorContent {
         byte_size: u64,
         format: ImageFormat,
     },
+    Motion {
+        relative_path: PathBuf,
+        preview_relative_path: Option<PathBuf>,
+        width: u32,
+        height: u32,
+        byte_size: u64,
+        format: MotionFormat,
+    },
     Text {
         text: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MotionFormat {
+    Mp4,
+    WebM,
+    Tgs,
+}
+
+impl MotionFormat {
+    pub(crate) const fn as_database_str(self) -> &'static str {
+        match self {
+            Self::Mp4 => "mp4",
+            Self::WebM => "webm",
+            Self::Tgs => "tgs",
+        }
+    }
+
+    pub(crate) const fn extension(self) -> &'static str {
+        self.as_database_str()
+    }
+
+    pub(crate) fn from_database_str(value: &str) -> Option<Self> {
+        match value {
+            "mp4" => Some(Self::Mp4),
+            "webm" => Some(Self::WebM),
+            "tgs" => Some(Self::Tgs),
+            _ => None,
+        }
+    }
 }
 
 /// Current duplicate status for an item in the Collector.
@@ -213,8 +264,19 @@ pub struct NewMemeFromCollector {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NewMemeContent {
-    Image { source_path: PathBuf },
-    Text { text: String },
+    Image {
+        source_path: PathBuf,
+    },
+    Motion {
+        source_path: PathBuf,
+        preview_path: Option<PathBuf>,
+        width: u32,
+        height: u32,
+        format: MotionFormat,
+    },
+    Text {
+        text: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

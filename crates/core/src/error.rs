@@ -53,6 +53,9 @@ pub enum Error {
     #[error("unsupported image format at {0}; expected PNG, JPEG, WebP, or GIF")]
     UnsupportedImageFormat(PathBuf),
 
+    #[error("invalid motion media at {0}")]
+    InvalidMotionMedia(PathBuf),
+
     #[error("source media changed while it was being imported: {0}")]
     SourceMediaChanged(PathBuf),
 
