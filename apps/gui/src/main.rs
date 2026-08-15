@@ -1,12 +1,11 @@
 mod input;
+mod model_download;
 mod search;
 mod settings;
 mod telegram;
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsStr,
-    io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::mpsc,
@@ -18,11 +17,11 @@ use gpui::{
     Focusable, FontWeight, KeyBinding, MouseButton, MouseDownEvent, ObjectFit, PathPromptOptions,
     Pixels, Point, PromptButton, PromptLevel, SharedString, Stateful, Window,
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, actions, anchored,
-    deferred, div, hsla, img, linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba,
-    size,
+    deferred, div, hsla, img, linear_color_stop, linear_gradient, point, prelude::*, px, relative,
+    rgb, rgba, size,
 };
 use input::{TextChanged, TextInput};
-use memelith_clip::{BuiltinModel, ClipModel, ExecutionPolicy};
+use memelith_clip::{ClipModel, ExecutionPolicy};
 use memelith_core::{
     APPLICATION_NAME, CollectorContent, CollectorDuplicate, CollectorItem, Meme, MemeContent,
     MemeDatabase, MemePack, NewMeme, NewMemeContent, NewMemeFromCollector, NewMemePack, NewTag,
@@ -39,8 +38,6 @@ const INBOX_NAME: &str = "Inbox";
 const DUPLICATE_IMAGE_MAX_COSINE_DISTANCE: f32 = 0.05;
 const MAX_TAG_SUGGESTIONS: usize = 6;
 const WAIFU_SENSOR_DATABASE_FILENAME: &str = "waifu-sensor.sqlite3";
-const BUNDLED_CLIP_MODELS_DIRECTORY: &str = "crates/clip/assets/models";
-const BUNDLED_WAIFU_MODEL_DIRECTORY: &str = "crates/waifu-sensor/assets/models/ml-danbooru";
 
 actions!(
     memelith,
@@ -425,6 +422,19 @@ enum TelegramRuntimeState {
     Failed(String),
 }
 
+#[derive(Clone, Debug)]
+enum ModelSetupState {
+    Checking,
+    Downloading(model_download::ModelInstallProgress),
+    Ready,
+    Failed(String),
+}
+
+enum ModelSetupMessage {
+    Progress(model_download::ModelInstallProgress),
+    Finished(Result<model_download::InstalledModels, String>),
+}
+
 struct ImageAnalysisResult {
     path: PathBuf,
     result: Result<Vec<SimilarMemeImage>, String>,
@@ -463,9 +473,6 @@ struct CharacterDetectionBatch {
 
 #[derive(Debug, Error)]
 enum UiError {
-    #[error("无法定位应用资源：{0}")]
-    Resources(#[from] io::Error),
-
     #[error("无法加载 embedding 模型：{0}")]
     Clip(#[from] memelith_clip::Error),
 
@@ -486,6 +493,9 @@ struct OpenedLibrary {
 struct MemelithView {
     database: Option<MemeDatabase>,
     waifu_sensor: Option<WaifuSensor>,
+    installed_models: Option<model_download::InstalledModels>,
+    model_setup_state: ModelSetupState,
+    pending_storage: Option<(PathBuf, bool)>,
     storage_root: Option<PathBuf>,
     inbox_id: Option<Uuid>,
     page: Page,
@@ -546,6 +556,9 @@ impl MemelithView {
         let mut view = Self {
             database: None,
             waifu_sensor: None,
+            installed_models: None,
+            model_setup_state: ModelSetupState::Checking,
+            pending_storage: None,
             storage_root: None,
             inbox_id: None,
             page: Page::All,
@@ -604,7 +617,7 @@ impl MemelithView {
         .detach();
 
         match saved_storage {
-            Ok(Some(path)) => view.activate_storage(path, false, cx),
+            Ok(Some(path)) => view.pending_storage = Some((path, false)),
             Ok(None) => {}
             Err(error) => {
                 view.notice = Some(Notice::Error(format!("无法读取上次的存储位置：{error}")));
@@ -613,53 +626,160 @@ impl MemelithView {
         if let Some(error) = telegram_error {
             view.notice = Some(Notice::Error(format!("无法读取 Telegram 设置：{error}")));
         }
+        view.start_model_setup(cx);
         view
     }
 
+    fn start_model_setup(&mut self, cx: &mut Context<Self>) {
+        self.installed_models = None;
+        self.model_setup_state = ModelSetupState::Checking;
+        let (sender, receiver) = mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("memelith-model-setup".to_owned())
+            .spawn(move || {
+                let result = model_download::ensure_default_models(|progress| {
+                    let _ = sender.send(ModelSetupMessage::Progress(progress));
+                })
+                .map_err(|error| error.to_string());
+                let _ = sender.send(ModelSetupMessage::Finished(result));
+            });
+        if let Err(error) = thread {
+            self.model_setup_state =
+                ModelSetupState::Failed(format!("无法启动模型下载线程：{error}"));
+            cx.notify();
+            return;
+        }
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                loop {
+                    match receiver.try_recv() {
+                        Ok(ModelSetupMessage::Progress(progress)) => {
+                            if this
+                                .update(cx, |view, cx| {
+                                    view.model_setup_state = ModelSetupState::Downloading(progress);
+                                    cx.notify();
+                                })
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
+                        Ok(ModelSetupMessage::Finished(result)) => {
+                            let _ = this
+                                .update(cx, |view, cx| view.apply_model_setup_result(result, cx));
+                            return;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            let _ = this.update(cx, |view, cx| {
+                                view.model_setup_state =
+                                    ModelSetupState::Failed("模型下载线程意外结束".to_owned());
+                                cx.notify();
+                            });
+                            return;
+                        }
+                    }
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    fn apply_model_setup_result(
+        &mut self,
+        result: Result<model_download::InstalledModels, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(models) => {
+                self.installed_models = Some(models);
+                self.model_setup_state = ModelSetupState::Ready;
+                if let Some((path, persist)) = self.pending_storage.take() {
+                    self.activate_storage(path, persist, cx);
+                }
+            }
+            Err(error) => {
+                self.model_setup_state = ModelSetupState::Failed(error);
+            }
+        }
+        cx.notify();
+    }
+
+    fn retry_model_setup(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.model_setup_state, ModelSetupState::Failed(_)) {
+            self.start_model_setup(cx);
+        }
+    }
+
     fn activate_storage(&mut self, path: PathBuf, persist: bool, cx: &mut Context<Self>) {
+        let Some(models) = self.installed_models.clone() else {
+            self.pending_storage = Some((path, persist));
+            self.notice = Some(Notice::Info("模型准备完成后会自动打开存储位置".to_owned()));
+            cx.notify();
+            return;
+        };
+        if self.opening_storage {
+            self.notice = Some(Notice::Info("正在打开存储位置".to_owned()));
+            cx.notify();
+            return;
+        }
         self.stop_telegram_bot();
         self.opening_storage = true;
         self.notice = None;
         cx.notify();
 
-        match open_library(&path) {
-            Ok(opened) => {
-                let canonical_root = opened.database.storage_root().to_path_buf();
-                self.database = Some(opened.database);
-                self.waifu_sensor = None;
-                self.storage_root = Some(canonical_root.clone());
-                self.inbox_id = Some(opened.inbox_id);
-                self.memes = opened.memes;
-                self.meme_packs = opened.meme_packs;
-                self.pack_names = opened.pack_names;
-                self.tags = opened.tags;
-                self.collector_items = opened.collector_items;
-                self.selected_collector_items.clear();
-                self.collector_context_menu = None;
-                self.reset_add_form(cx);
-                self.collector_text_input
-                    .update(cx, |input, cx| input.reset(cx));
-                self.meme_search_input
-                    .update(cx, |input, cx| input.reset(cx));
-                self.page = Page::All;
-                if persist {
-                    self.notice = match settings::save_storage_root(&canonical_root) {
-                        Ok(()) => Some(Notice::Success("存储位置已更新".to_owned())),
-                        Err(error) => Some(Notice::Error(format!(
-                            "存储已打开，但无法记住该位置：{error}"
-                        ))),
-                    };
+        cx.spawn(async move |this, cx| {
+            let model_directory = models.clip_directory;
+            let result = cx
+                .background_executor()
+                .spawn(async move { open_library(&path, &model_directory) })
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(opened) => {
+                        let canonical_root = opened.database.storage_root().to_path_buf();
+                        view.database = Some(opened.database);
+                        view.waifu_sensor = None;
+                        view.storage_root = Some(canonical_root.clone());
+                        view.inbox_id = Some(opened.inbox_id);
+                        view.memes = opened.memes;
+                        view.meme_packs = opened.meme_packs;
+                        view.pack_names = opened.pack_names;
+                        view.tags = opened.tags;
+                        view.collector_items = opened.collector_items;
+                        view.selected_collector_items.clear();
+                        view.collector_context_menu = None;
+                        view.reset_add_form(cx);
+                        view.collector_text_input
+                            .update(cx, |input, cx| input.reset(cx));
+                        view.meme_search_input
+                            .update(cx, |input, cx| input.reset(cx));
+                        view.page = Page::All;
+                        if persist {
+                            view.notice = match settings::save_storage_root(&canonical_root) {
+                                Ok(()) => Some(Notice::Success("存储位置已更新".to_owned())),
+                                Err(error) => Some(Notice::Error(format!(
+                                    "存储已打开，但无法记住该位置：{error}"
+                                ))),
+                            };
+                        }
+                    }
+                    Err(error) => {
+                        view.notice = Some(Notice::Error(error.to_string()));
+                    }
                 }
-            }
-            Err(error) => {
-                self.notice = Some(Notice::Error(error.to_string()));
-            }
-        }
-        if self.database.is_some() {
-            self.start_telegram_bot(cx);
-        }
-        self.opening_storage = false;
-        cx.notify();
+                if view.database.is_some() {
+                    view.start_telegram_bot(cx);
+                }
+                view.opening_storage = false;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn stop_telegram_bot(&mut self) {
@@ -696,15 +816,13 @@ impl MemelithView {
             self.telegram_runtime_state = TelegramRuntimeState::Stopped;
             return;
         };
-        let model_directory = match clip_model_directory() {
-            Ok(directory) => directory,
-            Err(error) => {
-                let message = format!("Telegram Bot 无法加载模型：{error}");
-                self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
-                self.notice = Some(Notice::Error(message));
-                return;
-            }
+        let Some(models) = self.installed_models.as_ref() else {
+            let message = "Telegram Bot 无法加载模型：模型尚未准备完成".to_owned();
+            self.telegram_runtime_state = TelegramRuntimeState::Failed(message.clone());
+            self.notice = Some(Notice::Error(message));
+            return;
         };
+        let model_directory = models.clip_directory.clone();
         self.telegram_runtime_generation = self.telegram_runtime_generation.wrapping_add(1);
         let generation = self.telegram_runtime_generation;
         self.telegram_runtime_state = TelegramRuntimeState::Starting;
@@ -1628,6 +1746,12 @@ impl MemelithView {
             cx.notify();
             return;
         };
+        let Some(models) = self.installed_models.as_ref() else {
+            self.notice = Some(Notice::Error("模型尚未准备完成".to_owned()));
+            cx.notify();
+            return;
+        };
+        let waifu_model_path = models.waifu_model_path.clone();
 
         let sensor = self.waifu_sensor.take();
         self.detecting_characters = true;
@@ -1641,7 +1765,9 @@ impl MemelithView {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { detect_draft_characters(sensor, storage_root, image_paths) })
+                .spawn(async move {
+                    detect_draft_characters(sensor, storage_root, waifu_model_path, image_paths)
+                })
                 .await;
             let _ = this.update(cx, |view, cx| {
                 view.detecting_characters = false;
@@ -2137,6 +2263,122 @@ impl MemelithView {
 
     fn focus_previous(&mut self, _: &FocusPrevious, window: &mut Window, _: &mut Context<Self>) {
         window.focus_prev();
+    }
+
+    fn render_model_setup(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (title, detail, progress, progress_label) = match &self.model_setup_state {
+            ModelSetupState::Checking => (
+                "正在准备本地模型".to_owned(),
+                "正在检查已下载文件；首次运行需要下载约 992 MiB。".to_owned(),
+                None,
+                None,
+            ),
+            ModelSetupState::Downloading(progress) => {
+                let action = match progress.phase {
+                    model_download::ModelInstallPhase::Checking => "正在校验",
+                    model_download::ModelInstallPhase::Downloading => "正在下载",
+                };
+                (
+                    "正在准备本地模型".to_owned(),
+                    format!("{action} {}", progress.asset_label),
+                    Some(progress.fraction()),
+                    Some(format!(
+                        "{} / {}",
+                        format_download_bytes(progress.completed_bytes),
+                        format_download_bytes(progress.total_bytes)
+                    )),
+                )
+            }
+            ModelSetupState::Failed(error) => {
+                ("模型下载失败".to_owned(), error.clone(), None, None)
+            }
+            ModelSetupState::Ready => (
+                "模型已准备完成".to_owned(),
+                "正在打开资料库。".to_owned(),
+                Some(1.0),
+                None,
+            ),
+        };
+        let failed = matches!(self.model_setup_state, ModelSetupState::Failed(_));
+
+        div()
+            .id("model-setup-root")
+            .size_full()
+            .bg(rgba(CONTENT_BG))
+            .text_color(rgb(INK))
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .h(px(52.))
+                    .flex_none()
+                    .window_control_area(WindowControlArea::Drag),
+            )
+            .child(
+                div().flex_1().flex().items_center().justify_center().child(
+                    div()
+                        .w(px(520.))
+                        .flex()
+                        .flex_col()
+                        .items_start()
+                        .gap_4()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(rgb(ACCENT))
+                                .child(APPLICATION_NAME.to_uppercase()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(28.))
+                                .font_weight(FontWeight::BOLD)
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .w_full()
+                                .text_sm()
+                                .line_height(px(22.))
+                                .text_color(if failed { rgb(DANGER) } else { rgba(LABEL_2) })
+                                .child(detail),
+                        )
+                        .when_some(progress, |element, fraction| {
+                            element.child(
+                                div()
+                                    .w_full()
+                                    .h(px(6.))
+                                    .rounded_full()
+                                    .overflow_hidden()
+                                    .bg(rgba(0x3c3c4314))
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .w(relative(fraction))
+                                            .rounded_full()
+                                            .bg(rgb(ACCENT)),
+                                    ),
+                            )
+                        })
+                        .when_some(progress_label, |element, label| {
+                            element.child(
+                                div()
+                                    .w_full()
+                                    .text_xs()
+                                    .text_color(rgba(LABEL_3))
+                                    .child(label),
+                            )
+                        })
+                        .when(failed, |element| {
+                            element.child(
+                                primary_pill("retry-model-setup")
+                                    .on_click(cx.listener(Self::retry_model_setup))
+                                    .child("重试下载"),
+                            )
+                        }),
+                ),
+            )
+            .into_any_element()
     }
 
     fn render_onboarding(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -3856,6 +4098,9 @@ impl Drop for MemelithView {
 
 impl Render for MemelithView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.installed_models.is_none() {
+            return self.render_model_setup(cx);
+        }
         if self.storage_root.is_none() {
             return self.render_onboarding(cx);
         }
@@ -3944,11 +4189,13 @@ fn collect_text_item(mut database: MemeDatabase, text: String) -> CollectorImpor
 fn detect_draft_characters(
     sensor: Option<WaifuSensor>,
     storage_root: PathBuf,
+    waifu_model_path: PathBuf,
     paths: Vec<PathBuf>,
 ) -> Result<CharacterDetectionBatch, String> {
     let mut sensor = match sensor {
         Some(sensor) => sensor,
-        None => open_waifu_sensor(&storage_root).map_err(|error| error.to_string())?,
+        None => open_waifu_sensor(&storage_root, &waifu_model_path)
+            .map_err(|error| error.to_string())?,
     };
     let top_one = NonZeroUsize::new(1).expect("one must be non-zero");
     let results = paths
@@ -3968,17 +4215,10 @@ fn detect_draft_characters(
     Ok(CharacterDetectionBatch { sensor, results })
 }
 
-fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
+fn open_waifu_sensor(storage_root: &Path, model_path: &Path) -> waifu_sensor::Result<WaifuSensor> {
     let bundle = WaifuBuiltinAssets::bundle()?;
     let model_manifest = WaifuBuiltinAssets::model_manifest()?;
-    let model_path = match macos_bundle_resources_directory()? {
-        Some(resources) => WaifuModelManager::path_in(
-            &model_manifest,
-            resources.join(BUNDLED_WAIFU_MODEL_DIRECTORY),
-        ),
-        None => WaifuBuiltinAssets::model_path()?,
-    };
-    WaifuModelManager::verify(&model_manifest, &model_path)?;
+    WaifuModelManager::verify(&model_manifest, model_path)?;
     let classes = WaifuBuiltinAssets::model_classes()?;
     let tagger = MlDanbooruTagger::load_with_classes(
         model_path,
@@ -3992,8 +4232,7 @@ fn open_waifu_sensor(storage_root: &Path) -> waifu_sensor::Result<WaifuSensor> {
     WaifuSensor::open(connection, &bundle, tagger).map(|(sensor, _)| sensor)
 }
 
-fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
-    let model_directory = clip_model_directory()?;
+fn open_library(storage_root: &Path, model_directory: &Path) -> Result<OpenedLibrary, UiError> {
     let model = ClipModel::load(model_directory, ExecutionPolicy::Auto)?;
     let mut database = MemeDatabase::open(storage_root, model)?;
     let packs = database.list_meme_packs()?;
@@ -4024,16 +4263,6 @@ fn open_library(storage_root: &Path) -> Result<OpenedLibrary, UiError> {
         meme_packs: packs,
         tags,
         collector_items,
-    })
-}
-
-fn clip_model_directory() -> Result<PathBuf, UiError> {
-    let builtin_model = BuiltinModel::ChineseClipVitBasePatch16;
-    Ok(match macos_bundle_resources_directory()? {
-        Some(resources) => resources
-            .join(BUNDLED_CLIP_MODELS_DIRECTORY)
-            .join(builtin_model.directory_name()),
-        None => builtin_model.directory(),
     })
 }
 
@@ -4073,6 +4302,11 @@ fn render_notice(notice: &Notice) -> AnyElement {
         .child(div().size(px(8.)).flex_none().rounded_full().bg(rgb(dot)))
         .child(div().text_sm().text_color(rgb(INK)).child(message.clone()))
         .into_any_element()
+}
+
+fn format_download_bytes(bytes: u64) -> String {
+    const MEBIBYTE: f64 = 1024.0 * 1024.0;
+    format!("{:.1} MiB", bytes as f64 / MEBIBYTE)
 }
 
 fn optional_input_text(value: &str) -> Option<String> {
@@ -4194,22 +4428,6 @@ fn main() {
         .expect("failed to open the Memelith window");
         cx.activate(true);
     });
-}
-
-fn macos_bundle_resources_directory() -> io::Result<Option<PathBuf>> {
-    let executable = std::env::current_exe()?;
-    let Some(macos_directory) = executable.parent() else {
-        return Ok(None);
-    };
-    let Some(contents_directory) = macos_directory.parent() else {
-        return Ok(None);
-    };
-    if macos_directory.file_name() != Some(OsStr::new("MacOS"))
-        || contents_directory.file_name() != Some(OsStr::new("Contents"))
-    {
-        return Ok(None);
-    }
-    Ok(Some(contents_directory.join("Resources")))
 }
 
 #[cfg(test)]

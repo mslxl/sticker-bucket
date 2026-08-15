@@ -126,15 +126,25 @@ pub(crate) fn embeddings_from_outputs(
     expected_batch: usize,
     expected_dimension: usize,
 ) -> Result<Vec<Embedding>> {
-    let value = outputs
-        .get("embeddings")
-        .ok_or_else(|| Error::InvalidModelOutput("missing output named `embeddings`".to_owned()))?;
+    let mut output_iter = outputs.iter();
+    let (output_name, value) = output_iter.next().ok_or_else(|| {
+        Error::InvalidModelOutput("model produced no embedding outputs".to_owned())
+    })?;
+    if output_iter.next().is_some() {
+        return Err(Error::InvalidModelOutput(
+            "model must produce exactly one embedding output".to_owned(),
+        ));
+    }
     let (shape, values) = value.try_extract_tensor::<f32>()?;
     let shape = shape
         .iter()
         .map(|dimension| usize::try_from(*dimension))
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|_| Error::InvalidModelOutput(format!("invalid embedding shape {shape:?}")))?;
+        .map_err(|_| {
+            Error::InvalidModelOutput(format!(
+                "invalid embedding shape for `{output_name}`: {shape:?}"
+            ))
+        })?;
     if shape != [expected_batch, expected_dimension] {
         return Err(Error::InvalidModelOutput(format!(
             "expected embedding output shape [{expected_batch}, {expected_dimension}], got {shape:?}"

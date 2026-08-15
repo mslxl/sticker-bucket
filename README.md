@@ -3,8 +3,8 @@
 This repository is a Rust workspace containing:
 
 - `memelith-core`: Memelith's application core.
-- `memelith-clip`: local Chinese text and image CLIP embedding with bundled
-  FP32 ONNX models.
+- `memelith-clip`: local Chinese text and image CLIP embedding with FP32 ONNX
+  models.
 - `waifu-sensor`: an independent Rust library and optional CLI for explainable
   anime character retrieval.
 - `character-segmentation`: a Rust library and CLI that runs AnimeInsSeg and
@@ -69,9 +69,17 @@ non-system dynamic libraries and applies an ad-hoc signature by default. Set
 `CODESIGN_IDENTITY` to use an installed signing identity instead. The generated
 arm64 bundle requires macOS 14 or later.
 
-Bundled ONNX artifacts are stored through Git LFS. Their pinned upstream
-download or export sources are listed in
-[`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
+The macOS application bundle does not contain the ONNX models. On first launch,
+the GUI downloads about 992 MiB of pinned model files, verifies their byte sizes
+and SHA-256 digests, and stores them under
+`~/Library/Application Support/memelith/models`. A network connection is
+therefore required the first time the app starts. Later launches verify and
+reuse the cached files; missing or invalid files are downloaded again.
+
+Development copies of the ONNX artifacts remain in the repository through Git
+LFS for the model crates and their explicit real-model tests. Their pinned
+download or export sources, together with the GUI download artifacts, are listed
+in [`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
 
 The workspace enables GPUI's `runtime_shaders` feature so macOS development does
 not require the Metal command-line compiler. Release packaging can disable this
