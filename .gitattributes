@@ -1,2 +1,0 @@
-crates/waifu-sensor/assets/models/**/*.onnx filter=lfs diff=lfs merge=lfs -text
-crates/clip/assets/models/**/*.onnx filter=lfs diff=lfs merge=lfs -text

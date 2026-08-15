@@ -76,10 +76,9 @@ and SHA-256 digests, and stores them under
 therefore required the first time the app starts. Later launches verify and
 reuse the cached files; missing or invalid files are downloaded again.
 
-Development copies of the ONNX artifacts remain in the repository through Git
-LFS for the model crates and their explicit real-model tests. Their pinned
-download or export sources, together with the GUI download artifacts, are listed
-in [`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
+The repository does not contain ONNX model binaries. Their pinned download or
+export sources, together with the GUI download artifacts, are listed in
+[`docs/onnx-model-sources.md`](docs/onnx-model-sources.md).
 
 The workspace enables GPUI's `runtime_shaders` feature so macOS development does
 not require the Metal command-line compiler. Release packaging can disable this

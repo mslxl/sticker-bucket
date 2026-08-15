@@ -4,8 +4,9 @@
 embeddings share the same 512-dimensional CLIP space. Storage and nearest-neighbor
 search are deliberately left to the caller.
 
-Bundled model assets are tracked with Git LFS. See `assets/README.md` for model
-sources and redistribution notes.
+The GUI downloads the model binaries into its application-data directory on
+first launch. This crate keeps only the small manifests and tokenizer metadata
+in `assets/`; see `assets/README.md` for model sources and redistribution notes.
 
 The bundled variants are:
 
@@ -36,7 +37,8 @@ cargo test -p memelith-clip
 ```
 
 The end-to-end model test is ignored during routine workspace checks because it
-loads four large ONNX sessions. Run it explicitly after fetching Git LFS assets:
+loads four large ONNX sessions. Run it explicitly after placing the downloaded
+model files in the corresponding `assets/models/` directories:
 
 ```sh
 cargo test -p memelith-clip --test real_models -- --ignored

@@ -8,6 +8,7 @@ use waifu_sensor::{
 };
 
 #[test]
+#[ignore = "requires the downloaded ML-Danbooru ONNX model"]
 fn real_model_matches_the_upstream_top_three() {
     let manifest_directory =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/models/ml-danbooru");

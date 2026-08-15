@@ -1,3 +1,7 @@
 /target/
 /output/
 .DS_Store
+
+# ONNX model binaries are downloaded into application data at runtime.
+crates/clip/assets/models/**/*.onnx
+crates/waifu-sensor/assets/models/**/*.onnx

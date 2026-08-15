@@ -1,8 +1,9 @@
-# Bundled CLIP models
+# CLIP model metadata
 
-The ONNX files below are FP32 exports and are tracked through Git LFS.
+The GUI downloads the FP32 ONNX files on first launch. This directory keeps the
+small manifests and tokenizer metadata needed to validate those downloads.
 See the workspace's [ONNX model source index](../../../docs/onnx-model-sources.md)
-for the pinned upstream snapshot links and Git LFS download command.
+for pinned upstream snapshot links.
 
 ## chinese-clip-vit-base-patch16
 

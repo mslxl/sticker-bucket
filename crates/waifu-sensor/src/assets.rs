@@ -8,7 +8,7 @@ const BUNDLE_CHARACTERS: &[u8] = include_bytes!("../assets/bundles/v3/characters
 const MODEL_MANIFEST: &[u8] = include_bytes!("../assets/models/ml-danbooru/manifest.json");
 const MODEL_CLASSES: &[u8] = include_bytes!("../assets/models/ml-danbooru/classes.json");
 
-/// Immutable resources shipped with waifu-sensor.
+/// Immutable metadata resources shipped with waifu-sensor.
 pub struct BuiltinAssets;
 
 impl BuiltinAssets {
@@ -59,12 +59,15 @@ mod tests {
     }
 
     #[test]
-    fn builtin_model_is_versioned_with_the_model_assets() {
+    fn builtin_model_path_matches_the_model_manifest() {
         let expected = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("assets/models/ml-danbooru/ml_caformer_m36_dec-5-97527.onnx");
         let manifest = BuiltinAssets::model_manifest().unwrap();
 
         assert_eq!(BuiltinAssets::model_path().unwrap(), expected);
-        ModelManager::verify(&manifest, expected).unwrap();
+        assert_eq!(
+            ModelManager::path_in(&manifest, expected.parent().unwrap()),
+            expected
+        );
     }
 }

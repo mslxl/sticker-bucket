@@ -111,10 +111,10 @@ Keep immutable, versioned inputs in this crate:
 
 - `assets/bundles/<revision>/`: manifest, optimized feature schema, and compressed
   character vectors.
-- `assets/models/<model>/`: ONNX model, checksum/source manifest, and class list.
+- `assets/models/<model>/`: checksum/source manifest and class list. The ONNX
+  model is downloaded by the GUI into application data at runtime.
 - `assets/fixtures/`: small test-only images.
 
-The ONNX model is versioned with Git LFS and loaded directly from the repository.
 Mutable SQLite data remains in the host application's platform data directory.
 `PlatformPaths::discover` and the CLI use this layout:
 

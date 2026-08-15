@@ -24,21 +24,15 @@ The Chinese-CLIP upstream project did not declare a license at the pinned base
 model revision. The download repository's metadata does not replace the base
 model's licensing terms; do not assume redistribution or commercial-use rights.
 
-## Repository development assets
+## Development and export references
 
-The ONNX files committed to this repository are stored with Git LFS. After
-cloning, download the repository copies with:
-
-```sh
-git lfs pull --include='crates/clip/assets/models/**/*.onnx,crates/waifu-sensor/assets/models/**/*.onnx'
-```
-
-The table below records where each model originated. The four CLIP files are
+The repository does not commit ONNX binaries. The table below records where
+each optional development model originated. The four CLIP files are
 local FP32 exports; their upstream projects do not publish these exact ONNX
 artifacts. Recreate them from the pinned Hugging Face snapshots with
 [`crates/clip/tools/export_models.py`](../crates/clip/tools/export_models.py).
 
-| Repository file | Acquisition | Upstream source |
+| Optional model | Acquisition | Upstream source |
 | --- | --- | --- |
 | `crates/clip/assets/models/chinese-clip-vit-base-patch16/text_encoder.onnx` | Local FP32 export | [OFA-Sys/chinese-clip-vit-base-patch16 at `36e679e`][chinese-clip] |
 | `crates/clip/assets/models/chinese-clip-vit-base-patch16/image_encoder.onnx` | Local FP32 export | [OFA-Sys/chinese-clip-vit-base-patch16 at `36e679e`][chinese-clip] |
