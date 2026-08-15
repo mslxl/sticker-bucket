@@ -4407,6 +4407,12 @@ fn main() {
             KeyBinding::new("enter", ConfirmTextContent, Some("TextComposer")),
             KeyBinding::new("escape", CancelTextComposer, Some("TextComposer")),
         ]);
+        cx.on_window_closed(|cx| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
         let saved_storage = settings::load_storage_root();
         let saved_telegram = settings::load_telegram_settings();
         let bounds = Bounds::centered(None, size(px(1120.), px(760.)), cx);
@@ -4419,7 +4425,7 @@ fn main() {
                 titlebar: Some(gpui::TitlebarOptions {
                     title: Some(APPLICATION_NAME.into()),
                     appears_transparent: true,
-                    traffic_light_position: Some(point(px(24.), px(24.))),
+                    traffic_light_position: Some(point(px(9.), px(9.))),
                 }),
                 ..Default::default()
             },
